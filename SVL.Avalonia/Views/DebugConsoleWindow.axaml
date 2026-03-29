@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SVL.Avalonia.ViewModels"
+        x:Class="SVL.Avalonia.Views.DebugConsoleWindow"
+        x:DataType="vm:DebugConsoleViewModel"
+        Width="980"
+        Height="460"
+        MinWidth="760"
+        MinHeight="340"
+        Title="SVL Debug Console">
+  <Grid RowDefinitions="Auto,Auto,*" Margin="10">
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+      <TextBlock Text="Debug 日志输出" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Content="导出" Command="{Binding ExportCommand}" Margin="0,0,8,0" />
+      <Button Grid.Column="2" Content="清空" Command="{Binding ClearCommand}" />
+    </Grid>
+
+    <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" Opacity="0.78" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+    <TextBox Grid.Row="2"
+             IsReadOnly="True"
+             AcceptsReturn="True"
+             TextWrapping="NoWrap"
+             FontFamily="Consolas,Menlo,Monaco,monospace"
+             FontSize="12"
+             Text="{Binding LogsText}" />
+  </Grid>
+</Window>

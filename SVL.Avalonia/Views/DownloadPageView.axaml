@@ -1,0 +1,262 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:SVL.Avalonia.ViewModels"
+             xmlns:model="using:SVL.Avalonia.Models"
+             xmlns:converters="using:SVL.Avalonia.Converters"
+             mc:Ignorable="d"
+             x:Class="SVL.Avalonia.Views.DownloadPageView"
+             x:Name="Root"
+             x:DataType="vm:DownloadPageViewModel">
+  <Grid ColumnDefinitions="280,*,330">
+    <Border Grid.Column="0" Classes="panel">
+      <StackPanel Spacing="8">
+        <TextBlock Text="{Binding DownloadCategoryTitleText}" Classes="sectionTitle" />
+        <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Smapi}">
+          <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsSmapiCategory}" />
+            <Image Grid.Column="1" Source="{Binding CategorySmapiIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
+              <TextBlock Text="{Binding CategorySmapiText}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding CategorySmapiSubText}" FontSize="11" Opacity="0.72" />
+            </StackPanel>
+          </Grid>
+        </Button>
+        <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Mods}">
+          <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsModsCategory}" />
+            <Image Grid.Column="1" Source="{Binding CategoryModsIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
+              <TextBlock Text="{Binding CategoryModsText}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding CategoryModsSubText}" FontSize="11" Opacity="0.72" />
+            </StackPanel>
+          </Grid>
+        </Button>
+        <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Modpacks}">
+          <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsModpacksCategory}" />
+            <Image Grid.Column="1" Source="{Binding CategoryModpacksIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
+              <TextBlock Text="{Binding CategoryModpacksText}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding CategoryModpacksSubText}" FontSize="11" Opacity="0.72" />
+            </StackPanel>
+          </Grid>
+        </Button>
+
+        <Separator Margin="0,8,0,8" />
+        <TextBlock Text="{Binding ActiveTasksTitleText}" Classes="sectionTitle" />
+        <TextBlock Text="{Binding NoActiveTasksText}" Opacity="0.65" IsVisible="{Binding HasNoActiveTasks}" />
+        <ItemsControl ItemsSource="{Binding ActiveTasks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border Classes="hintCard" Margin="0,0,0,8">
+                <StackPanel Spacing="8">
+                  <Button Classes="flatTask activeTask" Command="{Binding #Root.DataContext.SelectTaskCommand}" CommandParameter="{Binding}">
+                    <StackPanel>
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                          <Image Source="{Binding StatusIconSource, Converter={StaticResource AssetImageConverter}}" Width="14" Height="14" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayStatusText}" Classes="pill" />
+                      </Grid>
+                      <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="8" Margin="0,6,0,4" />
+                      <TextBlock Text="{Binding Progress, StringFormat=进度: {0}%}" Opacity="0.65" />
+                      <TextBlock Text="{Binding InstalledPath, StringFormat=安装目录: {0}}" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding IsFinished}" />
+                      <TextBlock Text="{Binding FailedDetails}" Opacity="0.8" TextWrapping="Wrap" IsVisible="{Binding HasFailedDetails}" />
+                    </StackPanel>
+                  </Button>
+                  <WrapPanel Orientation="Horizontal" ItemHeight="28" ItemWidth="118">
+                    <Button Content="{Binding #Root.DataContext.TaskCancelButtonText}"
+                          Classes="taskAction"
+                          Command="{Binding #Root.DataContext.CancelTaskCommand}"
+                          CommandParameter="{Binding}"
+                          HorizontalAlignment="Left"
+                          IsVisible="{Binding CanCancel}" />
+                    <Button Content="{Binding #Root.DataContext.TaskOpenReportButtonText}"
+                    Classes="taskAction"
+                    Command="{Binding #Root.DataContext.OpenTaskReportCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding HasReportPath}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Separator Margin="0,8,0,8" />
+        <TextBlock Text="{Binding HistoryTasksTitleText}" Classes="sectionTitle" />
+        <TextBlock Text="{Binding NoHistoryTasksText}" Opacity="0.65" IsVisible="{Binding HasNoFinishedTasks}" />
+        <ItemsControl ItemsSource="{Binding FinishedTasks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border Classes="hintCard" Margin="0,0,0,8">
+                <StackPanel Spacing="8">
+                  <Button Classes="flatTask historyTask" Command="{Binding #Root.DataContext.SelectTaskCommand}" CommandParameter="{Binding}">
+                    <StackPanel>
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                          <Image Source="{Binding StatusIconSource, Converter={StaticResource AssetImageConverter}}" Width="14" Height="14" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayStatusText}" Classes="pill" />
+                      </Grid>
+                      <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" Height="8" Margin="0,6,0,4" />
+                      <TextBlock Text="{Binding Progress, StringFormat=进度: {0}%}" Opacity="0.65" />
+                      <TextBlock Text="{Binding InstalledPath, StringFormat=安装目录: {0}}" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding IsFinished}" />
+                      <TextBlock Text="{Binding FailedDetails}" Opacity="0.8" TextWrapping="Wrap" IsVisible="{Binding HasFailedDetails}" />
+                    </StackPanel>
+                  </Button>
+                  <WrapPanel Orientation="Horizontal" ItemHeight="28" ItemWidth="118">
+                  <Button Content="{Binding #Root.DataContext.TaskRetryButtonText}"
+                          Classes="taskAction"
+                          Command="{Binding #Root.DataContext.RetryTaskCommand}"
+                          CommandParameter="{Binding}"
+                          HorizontalAlignment="Left"
+                          IsVisible="{Binding CanRetry}" />
+                  <Button Content="{Binding #Root.DataContext.TaskOpenReportButtonText}"
+                    Classes="taskAction"
+                    Command="{Binding #Root.DataContext.OpenTaskReportCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding HasReportPath}" />
+                  <Button Content="{Binding #Root.DataContext.TaskOpenBackupButtonText}"
+                    Classes="taskAction"
+                    Command="{Binding #Root.DataContext.OpenTaskBackupCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding HasBackupPath}" />
+                  <Button Content="{Binding #Root.DataContext.TaskCopyFailedButtonText}"
+                    Classes="taskAction"
+                    Command="{Binding #Root.DataContext.CopyTaskFailedDetailsCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding HasFailedDetails}" />
+                  <Button Content="{Binding #Root.DataContext.TaskOpenRetryReportButtonText}"
+                    Classes="taskAction"
+                    Command="{Binding #Root.DataContext.OpenTaskRetryReportCommand}"
+                    CommandParameter="{Binding}"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding HasRetryReportPath}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="{Binding SelectedTaskHint}" Opacity="0.75" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Column="1" Classes="panel" Margin="12,0,0,0">
+      <StackPanel Spacing="12">
+        <TextBlock Text="{Binding Title}" Classes="heroTitle" />
+        <TextBlock>
+          <Run Text="{Binding StatusPrefixText}" />
+          <Run Text="{Binding Status}" />
+        </TextBlock>
+
+        <Border Classes="hintCard">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding NxmCardTitleText}" Classes="hintTitle" />
+            <TextBox Text="{Binding NxmLinkInput}" Watermark="{Binding NxmInputWatermarkText}" />
+            <Grid ColumnDefinitions="Auto,*">
+              <Button Grid.Column="0" Content="{Binding NxmImportButtonText}" Command="{Binding ImportNxmLinkCommand}" Margin="0,0,8,0" />
+              <TextBlock Grid.Column="1" Text="{Binding NxmImportStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="hintCard">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding UrlCardTitleText}" Classes="hintTitle" />
+            <TextBox Text="{Binding DownloadUrlInput}" Watermark="{Binding UrlInputWatermarkText}" />
+            <TextBox Text="{Binding DownloadFileNameInput}" Watermark="{Binding UrlFileNameWatermarkText}" />
+            <Grid ColumnDefinitions="Auto,*">
+              <Button Grid.Column="0" Content="{Binding UrlQueueButtonText}" Command="{Binding QueueUrlDownloadCommand}" Margin="0,0,8,0" />
+              <TextBlock Grid.Column="1" Text="{Binding UrlDownloadStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="hintCard" IsVisible="{Binding ShowGamePathWarning}">
+          <Grid ColumnDefinitions="*,Auto" Margin="0">
+            <StackPanel Grid.Column="0" Spacing="4">
+              <TextBlock Text="{Binding GamePathWarningTitleText}" Classes="hintTitle" />
+              <TextBlock Text="{Binding GamePathWarningDescriptionText}" TextWrapping="Wrap" />
+              <TextBlock>
+                <Run Text="{Binding GamePathHintPrefixText}" />
+                <Run Text="{Binding GamePathHint}" />
+              </TextBlock>
+            </StackPanel>
+            <Button Grid.Column="1" Content="{Binding GoInstanceButtonText}" Command="{Binding SelectGamePathCommand}" Margin="8,0,0,0" />
+          </Grid>
+        </Border>
+
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Column="2" Classes="panel" Margin="12,0,0,0">
+      <ScrollViewer>
+        <StackPanel Spacing="12">
+          <Border Classes="hintCard">
+            <StackPanel Spacing="4">
+              <TextBlock Text="任务总览" Classes="hintTitle" />
+              <TextBlock Text="{Binding ActiveTasks.Count, StringFormat=进行中: {0}}" />
+              <TextBlock Text="{Binding FinishedTasks.Count, StringFormat=历史: {0}}" />
+              <TextBlock Text="{Binding SelectedTaskHint}" Opacity="0.75" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="hintCard" IsVisible="{Binding IsSmapiCategory}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding SmapiSearchTitleText}" Classes="hintTitle" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding SmapiSearchText}" Watermark="{Binding SmapiSearchWatermarkText}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchSmapiCommand}" />
+            </Grid>
+            <ComboBox ItemsSource="{Binding SmapiSources}" SelectedItem="{Binding SelectedSmapiSource}" />
+            <Button Content="{Binding SelectFirstResultButtonText}" Command="{Binding SelectFirstSearchResultCommand}" HorizontalAlignment="Left" />
+            <ItemsControl ItemsSource="{Binding SearchResults}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="• {Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+          <Border Classes="hintCard" IsVisible="{Binding IsModsCategory}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding ModSearchTitleText}" Classes="hintTitle" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding ModSearchText}" Watermark="{Binding ModSearchWatermarkText}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchModsCommand}" />
+            </Grid>
+            <ComboBox ItemsSource="{Binding ModSources}" SelectedItem="{Binding SelectedModSource}" />
+            <Button Content="{Binding OpenModSearchButtonText}" Command="{Binding OpenModSearchPageCommand}" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+
+          <Border Classes="hintCard" IsVisible="{Binding IsModpacksCategory}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding ModpackImportTitleText}" Classes="hintTitle" />
+            <TextBlock Text="{Binding ModpackImportDescriptionText}" TextWrapping="Wrap" />
+            <TextBox Text="{Binding ModpackUrlInput}" Watermark="{Binding ModpackUrlWatermarkText}" />
+            <TextBox Text="{Binding ModpackFileNameInput}" Watermark="{Binding ModpackFileNameWatermarkText}" />
+            <Grid ColumnDefinitions="Auto,*">
+              <Button Grid.Column="0" Content="{Binding ModpackImportButtonText}" Command="{Binding QueueModpackUrlDownloadCommand}" Margin="0,0,8,0" />
+              <TextBlock Grid.Column="1" Text="{Binding ModpackImportStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </Grid>
+            <Button Content="{Binding OpenModpackSearchButtonText}" Command="{Binding OpenModpackSearchPageCommand}" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

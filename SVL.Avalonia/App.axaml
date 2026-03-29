@@ -1,0 +1,13 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="using:SVL.Avalonia.Converters"
+             x:Class="SVL.Avalonia.App"
+             RequestedThemeVariant="Light">
+  <Application.Resources>
+    <converters:AssetImageConverter x:Key="AssetImageConverter" />
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://SVL.Avalonia/Resources/Theme.axaml" />
+  </Application.Styles>
+</Application>

@@ -1,0 +1,18 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+						 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+						 x:Class="SVL.Avalonia.Controls.LocalModDetailDialog"
+						 x:Name="Root">
+	<Border Classes="panel" Padding="14" MinWidth="500">
+		<StackPanel Spacing="8">
+			<TextBlock Text="{Binding Title, ElementName=Root}" Classes="heroTitle" />
+			<TextBlock Text="名称: {Binding ModName, ElementName=Root}" />
+			<TextBlock Text="版本: {Binding Version, ElementName=Root}" />
+			<TextBlock Text="作者: {Binding Author, ElementName=Root}" />
+			<TextBlock Text="{Binding Description, ElementName=Root}" TextWrapping="Wrap" />
+			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+				<Button Content="打开目录" Command="{Binding OpenFolderCommand, ElementName=Root}" />
+				<Button Content="关闭" Command="{Binding CloseCommand, ElementName=Root}" />
+			</StackPanel>
+		</StackPanel>
+	</Border>
+</UserControl>

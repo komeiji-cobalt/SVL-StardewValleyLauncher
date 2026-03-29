@@ -97,6 +97,23 @@
 
 ## 快速开始
 
+### Avalonia 迁移版（Windows + macOS）
+
+- 打包与安装说明：`docs/AVALONIA_MACOS_PACKAGING.md`
+- 页面本地化说明：`docs/AVALONIA_LOCALIZATION_GUIDE.md`
+
+跨平台打包示例：
+
+```bash
+./scripts/package-avalonia.sh Debug
+./scripts/package-avalonia.sh Release
+```
+
+Windows 命名示例（兼容旧版风格）：
+
+- `SVL.Desktop_v1.1.8.6_Debug_Windows_x64.exe`
+- `SVL.Desktop_v1.1.8.6_Release_Windows_x64.exe`
+
 ### 系统要求
 
 - **操作系统**: Windows 10 / 11

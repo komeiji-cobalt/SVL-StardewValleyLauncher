@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SVL.Avalonia.ViewModels"
+        x:Class="SVL.Avalonia.Controls.NexusLoginDialog"
+        Width="540"
+          Height="520"
+        WindowStartupLocation="CenterOwner"
+        x:DataType="vm:NexusLoginDialogViewModel"
+        Title="Nexus 登录">
+  <Border Padding="16">
+      <ScrollViewer>
+        <StackPanel Spacing="10">
+      <TextBlock Text="NexusMods 登录" FontSize="20" FontWeight="SemiBold" />
+      <TextBlock Text="当前阶段先接入 API Key 鉴权闭环（可演示）；后续再升级为完整 OAuth。" TextWrapping="Wrap" />
+      <TextBlock Text="API Key" />
+      <TextBox Watermark="请输入 Nexus API Key"
+               Text="{Binding ApiKey}" />
+      <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="获取 API Key" Command="{Binding OpenApiKeyPageCommand}" />
+        <Button Content="验证并登录" Command="{Binding ValidateAndLoginCommand}" />
+      </StackPanel>
+
+      <Separator Margin="0,6,0,6" />
+      <TextBlock Text="OAuth 登录（演示闭环）" FontSize="16" FontWeight="SemiBold" />
+      <TextBlock Text="推荐：点击“自动监听并登录”后在浏览器授权，SVL 会自动接收回调并完成登录。" TextWrapping="Wrap" />
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="自动监听并登录" Command="{Binding StartOAuthAutoLoginCommand}" />
+        <Button Content="重开授权页" Command="{Binding RetryOpenAuthorizePageCommand}" />
+        <Button Content="复制授权地址" Command="{Binding CopyAuthorizeUrlCommand}" IsEnabled="{Binding CanCopyAuthorizeUrl}" />
+        <Button Content="开始 OAuth 授权" Command="{Binding StartOAuthAuthorizeCommand}" />
+        <Button Content="完成 OAuth 登录" Command="{Binding CompleteOAuthLoginCommand}" />
+      </StackPanel>
+      <TextBox Text="{Binding OauthCallbackInput}" Watermark="粘贴回调 URL 或 code" />
+      <TextBlock Text="{Binding OauthStatusMessage}" TextWrapping="Wrap" />
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button Content="关闭" Command="{Binding CancelCommand}" />
+      </StackPanel>
+    </StackPanel>
+        </ScrollViewer>
+  </Border>
+</Window>

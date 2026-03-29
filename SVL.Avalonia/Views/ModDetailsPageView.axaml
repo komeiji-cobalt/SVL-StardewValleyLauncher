@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SVL.Avalonia.ViewModels"
+             x:Class="SVL.Avalonia.Views.ModDetailsPageView"
+             x:DataType="vm:ModDetailsPageViewModel">
+  <Border Classes="panel">
+    <StackPanel Spacing="8">
+      <TextBlock Text="{Binding Title}" Classes="heroTitle" />
+      <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+      <Separator />
+      <TextBlock Text="资源名称: {Binding ResourceName}" />
+      <TextBlock Text="来源: {Binding ResourceSource}" />
+      <TextBlock Text="说明: {Binding ResourceNotes}" TextWrapping="Wrap" />
+      <TextBlock Text="状态: {Binding DetailsStatus}" Opacity="0.75" />
+
+      <TextBlock Text="可选版本" FontWeight="SemiBold" />
+      <Border Classes="hintCard">
+        <ScrollViewer Height="90">
+          <ItemsControl ItemsSource="{Binding VersionOptions}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Border>
+
+      <TextBlock Text="依赖信息" FontWeight="SemiBold" />
+      <Border Classes="hintCard">
+        <ScrollViewer Height="90">
+          <ItemsControl ItemsSource="{Binding DependencyItems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Border>
+
+      <TextBlock Text="下载选项" FontWeight="SemiBold" />
+      <ComboBox ItemsSource="{Binding DownloadOptions}" SelectedItem="{Binding SelectedDownloadOption}" />
+      <Button Content="加入下载队列" Command="{Binding QueueDownloadCommand}" HorizontalAlignment="Left" />
+    </StackPanel>
+  </Border>
+</UserControl>

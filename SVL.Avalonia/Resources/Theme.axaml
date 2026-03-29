@@ -1,0 +1,258 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="WindowBackgroundBrush">#FFF5EDE0</SolidColorBrush>
+    <SolidColorBrush x:Key="HeaderBackgroundBrush">#FFD47748</SolidColorBrush>
+    <SolidColorBrush x:Key="PanelBackgroundBrush">#FFFAF7EE</SolidColorBrush>
+    <SolidColorBrush x:Key="PanelBorderBrush">#66B89B7F</SolidColorBrush>
+  </Styles.Resources>
+
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="#FF3A2B22" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="Foreground" Value="#FF3A2B22" />
+  </Style>
+
+  <Style Selector="TextBox">
+    <Setter Property="Foreground" Value="#FF3A2B22" />
+    <Setter Property="Background" Value="#FFFFFBF3" />
+  </Style>
+
+  <Style Selector="ComboBox">
+    <Setter Property="Foreground" Value="#FF3A2B22" />
+    <Setter Property="Background" Value="#FFFFFBF3" />
+  </Style>
+
+  <Style Selector="TextBlock.brand">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button.nav">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="Padding" Value="12,8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Button.nav:pointerover">
+    <Setter Property="Background" Value="#33FFFFFF" />
+  </Style>
+
+  <Style Selector="Button.nav.selected">
+    <Setter Property="Background" Value="#33FFFFFF" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button.nav.back">
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="MinWidth" Value="30" />
+  </Style>
+
+  <Style Selector="Button.settingsNav">
+    <Setter Property="Background" Value="#00FFFFFF" />
+    <Setter Property="BorderBrush" Value="#66D4C4A8" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+
+  <Style Selector="Button.settingsNav.selected">
+    <Setter Property="Background" Value="#33D4C4A8" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button.winCtrl">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Button.winCtrl:pointerover">
+    <Setter Property="Opacity" Value="0.92" />
+  </Style>
+
+  <Style Selector="Button.winCtrl.min:pointerover">
+    <Setter Property="Background" Value="#3381C784" />
+  </Style>
+
+  <Style Selector="Button.winCtrl.max:pointerover">
+    <Setter Property="Background" Value="#33FFCA28" />
+  </Style>
+
+  <Style Selector="Button.winCtrl.close:pointerover">
+    <Setter Property="Background" Value="#44EF5350" />
+  </Style>
+
+  <Style Selector="TextBlock.platformTag">
+    <Setter Property="Foreground" Value="#FFE7E0B1" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource PanelBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="14" />
+  </Style>
+
+  <Style Selector="TextBlock.sectionTitle">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="14" />
+  </Style>
+
+  <Style Selector="TextBlock.sectionValue">
+    <Setter Property="FontSize" Value="22" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBlock.pill">
+    <Setter Property="Background" Value="#33D47748" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+
+  <Style Selector="TextBlock.heroTitle">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="Bold" />
+  </Style>
+
+  <Style Selector="Border.hintCard">
+    <Setter Property="Background" Value="#FFF8F2DE" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Border.hintCard:pointerover">
+    <Setter Property="Opacity" Value="0.92" />
+  </Style>
+
+  <Style Selector="TextBlock.hintTitle">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Background" Value="#FFF8F2DE" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button:pointerover:enabled">
+    <Setter Property="Background" Value="#FFF2E7C7" />
+  </Style>
+
+  <Style Selector="Button:disabled">
+    <Setter Property="Background" Value="#FFEDE6D6" />
+    <Setter Property="Foreground" Value="#99684C3B" />
+    <Setter Property="BorderBrush" Value="#99D4C4A8" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <Style Selector="Button.flatTask">
+    <Setter Property="Background" Value="#FFF8F2DE" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Button.flatTask:pointerover">
+    <Setter Property="Opacity" Value="0.9" />
+  </Style>
+
+  <Style Selector="Button.flatTask.activeTask">
+    <Setter Property="Background" Value="#FFF2E7C7" />
+    <Setter Property="BorderBrush" Value="#FFD8B675" />
+  </Style>
+
+  <Style Selector="Button.flatTask.historyTask">
+    <Setter Property="Background" Value="#FFF5EDE0" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+  </Style>
+
+  <Style Selector="Button.taskAction">
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="MinWidth" Value="112" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Background" Value="#FFF8F2DE" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="Button.downloadCategory">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="#00FFFFFF" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+
+  <Style Selector="Button.downloadCategory:pointerover">
+    <Setter Property="Background" Value="#33D4C4A8" />
+  </Style>
+
+  <Style Selector="Button.launchPrimary">
+    <Setter Property="Background" Value="#FFD47748" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="BorderBrush" Value="#FFD47748" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button.launchPrimary:pointerover">
+    <Setter Property="Background" Value="#FFE08A5D" />
+  </Style>
+
+  <Style Selector="Button.launchSecondary">
+    <Setter Property="Background" Value="#FFF8F2DE" />
+    <Setter Property="Foreground" Value="#FF663021" />
+    <Setter Property="BorderBrush" Value="#FFD4C4A8" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button.launchSecondary:pointerover">
+    <Setter Property="Background" Value="#FFF2E7C7" />
+  </Style>
+</Styles>

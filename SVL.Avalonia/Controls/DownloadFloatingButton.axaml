@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+						 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+						 x:Class="SVL.Avalonia.Controls.DownloadFloatingButton"
+						 x:Name="Root">
+	<Border Classes="panel" Padding="8" CornerRadius="20">
+		<Button Command="{Binding OpenQueueCommand, ElementName=Root}"
+						CommandParameter="{Binding PendingTaskCount, ElementName=Root}">
+			<StackPanel Orientation="Horizontal" Spacing="6">
+				<TextBlock Text="下载任务" />
+				<Border Classes="hintCard" Padding="6,1">
+					<TextBlock Text="{Binding PendingTaskCount, ElementName=Root}" />
+				</Border>
+			</StackPanel>
+		</Button>
+	</Border>
+</UserControl>

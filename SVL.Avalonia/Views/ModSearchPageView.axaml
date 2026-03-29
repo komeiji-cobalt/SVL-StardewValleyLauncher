@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SVL.Avalonia.ViewModels"
+             x:Class="SVL.Avalonia.Views.ModSearchPageView"
+             x:DataType="vm:ModSearchPageViewModel">
+  <Border Classes="panel">
+    <StackPanel Spacing="8">
+      <TextBlock Text="{Binding Title}" Classes="heroTitle" />
+      <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+      <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+        <TextBox Grid.Column="0" Text="{Binding Query}" Watermark="输入 Mod 关键词" Margin="0,0,8,0" />
+        <Button Grid.Column="1" Content="搜索" Command="{Binding SearchCommand}" />
+      </Grid>
+      <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" />
+      <TextBlock Text="{Binding Status}" Opacity="0.75" />
+      <ItemsControl ItemsSource="{Binding Results}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Button Classes="flatTask" Content="{Binding}" Command="{Binding #Root.DataContext.OpenDetailsCommand}" CommandParameter="{Binding}" Margin="0,0,0,6" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+						 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+						 x:Class="SVL.Avalonia.Controls.ModpackDropDialog"
+						 x:Name="Root">
+	<Border Classes="panel" Padding="14" MinWidth="500">
+		<StackPanel Spacing="10">
+			<TextBlock Text="{Binding Title, ElementName=Root}" Classes="heroTitle" />
+			<TextBlock Text="{Binding Description, ElementName=Root}" TextWrapping="Wrap" />
+			<TextBox Text="{Binding SourceInput, ElementName=Root, Mode=TwoWay}" Watermark="粘贴 Modpack URL 或本地文件路径" />
+			<StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+				<Button Content="取消" Command="{Binding CancelCommand, ElementName=Root}" />
+				<Button Content="导入" Command="{Binding ImportCommand, ElementName=Root}" CommandParameter="{Binding SourceInput, ElementName=Root}" />
+			</StackPanel>
+		</StackPanel>
+	</Border>
+</UserControl>

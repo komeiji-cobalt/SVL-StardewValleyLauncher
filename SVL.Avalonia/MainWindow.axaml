@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:SVL.Avalonia.ViewModels"
+  xmlns:views="using:SVL.Avalonia.Views"
+        mc:Ignorable="d" d:DesignWidth="1050" d:DesignHeight="680"
+        x:Class="SVL.Avalonia.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Icon="avares://SVL.Avalonia/Assets/Icons/icon.png"
+        SystemDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="48"
+        Width="1050"
+        Height="680"
+        MinWidth="900"
+        MinHeight="600"
+        Background="{DynamicResource WindowBackgroundBrush}">
+
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:LaunchPageViewModel">
+      <views:LaunchPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:DownloadPageViewModel">
+      <views:DownloadPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:SettingsPageViewModel">
+      <views:SettingsPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:InstancesPageViewModel">
+      <views:InstancesPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:TaskStatusPageViewModel">
+      <views:TaskStatusPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:ModSearchPageViewModel">
+      <views:ModSearchPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:ModpackSearchPageViewModel">
+      <views:ModpackSearchPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:ModDetailsPageViewModel">
+      <views:ModDetailsPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:VersionSettingsPageViewModel">
+      <views:VersionSettingsPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:InstanceSettingsPageViewModel">
+      <views:InstanceSettingsPageView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:ExportPageViewModel">
+      <views:ExportPageView />
+    </DataTemplate>
+  </Window.DataTemplates>
+
+  <Grid RowDefinitions="48,*">
+    <Border Grid.Row="0" Background="{DynamicResource HeaderBackgroundBrush}" BorderBrush="#335D2C1F" BorderThickness="0,0,0,1" PointerPressed="TitleBar_PointerPressed">
+      <Grid ColumnDefinitions="Auto,*,Auto" Margin="16,0">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Classes="nav back" IsVisible="{Binding ShowBackButton}" Command="{Binding NavigateBackCommand}">
+            <TextBlock Text="←" FontSize="18" VerticalAlignment="Center" Foreground="White" />
+          </Button>
+          <Image Source="avares://SVL.Avalonia/Assets/Icons/Junimo.png" Width="22" Height="22" VerticalAlignment="Center" IsVisible="{Binding ShowBrandIdentity}" />
+          <TextBlock Text="{Binding LauncherAppNameText}" Classes="brand" Foreground="White" IsVisible="{Binding ShowBrandIdentity}" />
+          <TextBlock Text="{Binding ResourceDetailsHeaderTitle}" Classes="brand" Foreground="White" IsVisible="{Binding ShowResourceDetailHeaderTitle}" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+          <Button Classes="nav" Classes.selected="{Binding IsLaunchPage}" Command="{Binding NavigateToLaunchCommand}">
+            <TextBlock Text="{Binding NavLaunchText}" VerticalAlignment="Center" Foreground="White" />
+          </Button>
+          <Button Classes="nav" Classes.selected="{Binding IsDownloadPage}" Command="{Binding NavigateToDownloadCommand}">
+            <TextBlock Text="{Binding NavDownloadText}" VerticalAlignment="Center" Foreground="White" />
+          </Button>
+          <Button Classes="nav" Classes.selected="{Binding IsTasksPage}" Command="{Binding NavigateToTasksCommand}">
+            <Grid>
+              <TextBlock Text="{Binding NavTasksText}" VerticalAlignment="Center" Foreground="White" />
+              <Ellipse Width="7"
+                       Height="7"
+                       Fill="#FFEF5350"
+                       Stroke="White"
+                       StrokeThickness="0.8"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Top"
+                       Margin="0,-2,-2,0"
+                       IsVisible="{Binding ShowTaskNavNotification}" />
+              <Ellipse Width="7"
+                       Height="7"
+                       Fill="#FFE0B85A"
+                       Stroke="#FFF8F2DE"
+                       StrokeThickness="0.8"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Top"
+                       Margin="0,-2,-2,0"
+                       IsVisible="{Binding ShowTaskNavSoftHint}" />
+            </Grid>
+          </Button>
+          <Button Classes="nav" Classes.selected="{Binding IsSettingsPage}" Command="{Binding NavigateToSettingsCommand}">
+            <TextBlock Text="{Binding NavSettingsText}" VerticalAlignment="Center" Foreground="White" />
+          </Button>
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="8" IsVisible="{Binding ShowWindowControlButtons}">
+          <Button Classes="winCtrl min" Click="MinimizeButton_Click" ToolTip.Tip="最小化">
+            <TextBlock Text="-" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" />
+          </Button>
+          <Button Classes="winCtrl max" Click="MaximizeButton_Click" ToolTip.Tip="最大化/还原">
+            <TextBlock Text="□" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" HorizontalAlignment="Center" />
+          </Button>
+          <Button Classes="winCtrl close" Click="CloseButton_Click" ToolTip.Tip="关闭">
+            <TextBlock Text="×" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" />
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" Margin="16">
+      <Border Classes="panel">
+        <ContentControl Content="{Binding CurrentPageViewModel}" />
+      </Border>
+    </Grid>
+  </Grid>
+</Window>
