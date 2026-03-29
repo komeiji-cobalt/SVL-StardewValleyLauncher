@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Platform;
+using Microsoft.Win32;
 using SVL.Avalonia.Models;
 using SVL.Core.Platform.Abstractions;
 using System;
@@ -9,6 +10,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text;
 
 namespace SVL.Avalonia.ViewModels;
@@ -361,6 +364,177 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
     }
 }
 
+public sealed class ModTagFilterOption
+{
+    private const string FolderPrefix = "[Folder] ";
+    private const string PrefixFolderPrefix = "[Prefix] ";
+    private const string CustomTagPrefix = "[Custom] ";
+
+    public string Key { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string TagId { get; set; } = string.Empty;
+    public bool IsFolderTag { get; set; }
+    public bool IsPrefixFolderTag { get; set; }
+    public bool IsAllOption { get; set; }
+
+    public string DisplayText => IsAllOption
+        ? Name
+        : $"{(IsFolderTag ? (IsPrefixFolderTag ? PrefixFolderPrefix : FolderPrefix) : CustomTagPrefix)}{Name}";
+}
+
+public sealed partial class ModTagPanelItem : ObservableObject
+{
+    public ModTagFilterOption Option { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    public ModTagPanelItem(ModTagFilterOption option)
+    {
+        Option = option;
+    }
+
+    public string Key => Option.Key;
+    public string Name => Option.Name;
+    public string TagId => Option.TagId;
+    public bool IsFolderTag => Option.IsFolderTag;
+    public bool IsCustomTag => !Option.IsFolderTag && !Option.IsAllOption;
+    public string DisplayText => Option.DisplayText;
+}
+
+public sealed class ModTagConfig
+{
+    public List<ModCustomTagDefinition> CustomTags { get; set; } = [];
+    public Dictionary<string, List<string>> Assignments { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> FolderTagOrder { get; set; } = [];
+    public List<string> CustomTagOrder { get; set; } = [];
+}
+
+public sealed class ModCustomTagDefinition
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+}
+
+public static class ModTagConfigService
+{
+    private const string ConfigFileName = ".svl-mod-tags.json";
+
+    public static ModTagConfig Load(string modsPath)
+    {
+        try
+        {
+            var filePath = GetConfigPath(modsPath);
+            if (!File.Exists(filePath))
+            {
+                return new ModTagConfig();
+            }
+
+            var json = File.ReadAllText(filePath);
+            var config = JsonSerializer.Deserialize<ModTagConfig>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            }) ?? new ModTagConfig();
+
+            config.CustomTags ??= [];
+            config.Assignments ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            config.FolderTagOrder ??= [];
+            config.CustomTagOrder ??= [];
+            return Normalize(config);
+        }
+        catch
+        {
+            return new ModTagConfig();
+        }
+    }
+
+    public static bool Save(string modsPath, ModTagConfig config)
+    {
+        try
+        {
+            Directory.CreateDirectory(modsPath);
+            var filePath = GetConfigPath(modsPath);
+            var normalized = Normalize(config);
+            var json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetConfigPath(string modsPath)
+    {
+        return Path.Combine(modsPath, ConfigFileName);
+    }
+
+    private static ModTagConfig Normalize(ModTagConfig config)
+    {
+        config ??= new ModTagConfig();
+        config.CustomTags ??= [];
+        config.Assignments ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        config.FolderTagOrder ??= [];
+        config.CustomTagOrder ??= [];
+
+        config.CustomTags = config.CustomTags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Id) && !string.IsNullOrWhiteSpace(tag.Name))
+            .GroupBy(tag => tag.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var validTagIds = config.CustomTags
+            .Select(tag => tag.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        config.CustomTagOrder = config.CustomTagOrder
+            .Where(tagId => !string.IsNullOrWhiteSpace(tagId) && validTagIds.Contains(tagId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var tag in config.CustomTags)
+        {
+            if (!config.CustomTagOrder.Any(id => string.Equals(id, tag.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                config.CustomTagOrder.Add(tag.Id);
+            }
+        }
+
+        config.FolderTagOrder = config.FolderTagOrder
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var cleanedAssignments = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var assignment in config.Assignments)
+        {
+            var modKey = assignment.Key;
+            var tags = assignment.Value;
+            if (string.IsNullOrWhiteSpace(modKey) || tags == null)
+            {
+                continue;
+            }
+
+            var filtered = tags
+                .Where(tagId => !string.IsNullOrWhiteSpace(tagId) && validTagIds.Contains(tagId))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (filtered.Count > 0)
+            {
+                cleanedAssignments[modKey] = filtered;
+            }
+        }
+
+        config.Assignments = cleanedAssignments;
+        return config;
+    }
+}
+
 public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelBase
 {
     private readonly Services.AppUserSettingsStore _settingsStore;
@@ -368,6 +542,8 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     private readonly Services.LocalizationService _localizationService;
     private readonly Services.ImageResourceService _imageResourceService;
     private readonly Services.DialogService _dialogService;
+    private ModTagConfig _modTagConfig = new();
+    private string _currentModsPathForTagConfig = string.Empty;
     private string _titleText = "版本设置";
     private string _descriptionText = "实例级配置。";
 
@@ -603,9 +779,32 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     private ModManageItem? _selectedMod;
 
     [ObservableProperty]
+    private ModTagFilterOption? _selectedTagFilter;
+
+    [ObservableProperty]
+    private ModTagFilterOption? _selectedCustomTag;
+
+    [ObservableProperty]
+    private string _newCustomTagName = string.Empty;
+
+    [ObservableProperty]
+    private string _renameCustomTagName = string.Empty;
+
+    [ObservableProperty]
+    private string _inlineTagHint = "点击标签可多选，按“绑定选中标签”即可应用到当前选中 Mod。";
+
+    [ObservableProperty]
     private string _modManageHint = "请选择一个 Mod 进行管理";
 
     public ObservableCollection<ModManageItem> Mods { get; } = [];
+
+    public ObservableCollection<ModManageItem> FilteredMods { get; } = [];
+
+    public ObservableCollection<ModTagFilterOption> TagFilters { get; } = [];
+
+    public ObservableCollection<ModTagPanelItem> TagPanelItems { get; } = [];
+
+    public ObservableCollection<ModTagFilterOption> CustomTagDefinitions { get; } = [];
 
     public bool IsGeneralSection => IsOverviewSection;
 
@@ -633,9 +832,19 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
     public bool HasMods => Mods.Count > 0;
 
-    public bool ShowEmptyModsHint => !HasMods;
+    public bool HasFilteredMods => FilteredMods.Count > 0;
+
+    public bool ShowEmptyModsHint => !HasFilteredMods;
 
     public bool CanOperateSelectedMod => SelectedMod != null;
+
+    public bool HasSelectedCustomTag => SelectedCustomTag != null;
+
+    public bool HasSelectedTagPanelItems => TagPanelItems.Any(item => item.IsSelected);
+
+    public bool CanBatchAddSelectedTags => CanOperateSelectedMod && HasSelectedTagPanelItems;
+
+    public bool CanBatchRemoveSelectedTags => CanOperateSelectedMod && HasSelectedTagPanelItems;
 
     public string CurrentInstanceFolderPath => ResolveCurrentInstancePath();
 
@@ -714,10 +923,17 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         Mods.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasMods));
+            OnPropertyChanged(nameof(HasFilteredMods));
             OnPropertyChanged(nameof(ShowEmptyModsHint));
             OnPropertyChanged(nameof(ModsSummary));
             OnPropertyChanged(nameof(EnabledModsCount));
             OnPropertyChanged(nameof(DisabledModsCount));
+        };
+
+        FilteredMods.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasFilteredMods));
+            OnPropertyChanged(nameof(ShowEmptyModsHint));
         };
 
         ReloadFromSettings();
@@ -967,8 +1183,21 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         OnPropertyChanged(nameof(CanOperateSelectedMod));
         OnPropertyChanged(nameof(CanEnableSelectedMod));
         OnPropertyChanged(nameof(CanDisableSelectedMod));
+        OnPropertyChanged(nameof(CanBatchAddSelectedTags));
+        OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
         OnPropertyChanged(nameof(SelectedModDetails));
         RefreshModManageHint();
+    }
+
+    partial void OnSelectedTagFilterChanged(ModTagFilterOption? value)
+    {
+        ApplyTagFilter();
+    }
+
+    partial void OnSelectedCustomTagChanged(ModTagFilterOption? value)
+    {
+        RenameCustomTagName = value?.Name ?? string.Empty;
+        OnPropertyChanged(nameof(HasSelectedCustomTag));
     }
 
     private void RefreshModManageHint(string? overrideHint = null)
@@ -1114,7 +1343,18 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             DetachModItem(existingItem);
         }
 
+        foreach (var panelItem in TagPanelItems)
+        {
+            DetachTagPanelItem(panelItem);
+        }
+
         Mods.Clear();
+        FilteredMods.Clear();
+        TagFilters.Clear();
+        CustomTagDefinitions.Clear();
+        TagPanelItems.Clear();
+        SelectedTagFilter = null;
+        SelectedCustomTag = null;
         SelectedMod = null;
 
         var settings = _settingsStore.Load();
@@ -1168,6 +1408,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             var version = "未知版本";
             var author = string.Empty;
             var description = string.Empty;
+            var uniqueId = string.Empty;
 
             if (File.Exists(manifestPath))
             {
@@ -1177,6 +1418,11 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                     if (doc.RootElement.TryGetProperty("Name", out var nameElement))
                     {
                         displayName = nameElement.GetString() ?? displayName;
+                    }
+
+                    if (doc.RootElement.TryGetProperty("UniqueID", out var uniqueIdElement))
+                    {
+                        uniqueId = uniqueIdElement.GetString() ?? uniqueId;
                     }
 
                     if (doc.RootElement.TryGetProperty("Version", out var versionElement))
@@ -1207,18 +1453,521 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 Author = author,
                 Description = description,
                 DirectoryName = folderName,
+                FolderName = actualName,
                 FullPath = modDirectory,
+                UniqueId = uniqueId,
                 IsEnabled = isEnabled,
                 UpdateStatus = "未检查"
             };
+
+            foreach (var tag in BuildFolderTagsForMod(modsPath, modDirectory, actualName))
+            {
+                item.FolderTags.Add(tag);
+            }
+
             AttachModItem(item);
             Mods.Add(item);
         }
+
+        LoadAndApplyTags(modsPath);
+        ApplyTagFilter();
 
         Status = Mods.Count == 0
             ? "当前实例 Mods 目录为空"
             : $"已加载 {Mods.Count} 个 Mod（启用 {Mods.Count(item => item.IsEnabled)} / 禁用 {Mods.Count(item => !item.IsEnabled)}）";
         RefreshModManageHint();
+    }
+
+    private void LoadAndApplyTags(string modsPath)
+    {
+        _currentModsPathForTagConfig = modsPath;
+        _modTagConfig = ModTagConfigService.Load(modsPath);
+
+        var customTagNameById = _modTagConfig.CustomTags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Id) && !string.IsNullOrWhiteSpace(tag.Name))
+            .ToDictionary(tag => tag.Id, tag => tag.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var mod in Mods)
+        {
+            ApplyCustomTagsToMod(mod, customTagNameById);
+        }
+
+        RefreshTagFilters();
+    }
+
+    private void RefreshTagFilters()
+    {
+        var selectedChipKeys = TagPanelItems
+            .Where(item => item.IsSelected)
+            .Select(item => item.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var previousKey = SelectedTagFilter?.Key;
+
+        var folderTagSourceFlags = Mods
+            .SelectMany(mod => mod.FolderTags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                .Select(tag => new
+                {
+                    Name = tag,
+                    IsPrefix = string.Equals(tag, TryExtractPrefixCategory(mod.FolderName), StringComparison.OrdinalIgnoreCase)
+                }))
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Any(item => item.IsPrefix), StringComparer.OrdinalIgnoreCase);
+
+        var folderTags = folderTagSourceFlags.Keys
+            .OrderBy(tag =>
+            {
+                var index = _modTagConfig.FolderTagOrder.FindIndex(name => string.Equals(name, tag, StringComparison.OrdinalIgnoreCase));
+                return index >= 0 ? index : int.MaxValue;
+            })
+            .ThenBy(tag => tag, StringComparer.OrdinalIgnoreCase)
+            .Select(tag => new ModTagFilterOption
+            {
+                Key = $"folder:{tag}",
+                Name = tag,
+                IsFolderTag = true,
+                IsPrefixFolderTag = folderTagSourceFlags.TryGetValue(tag, out var isPrefix) && isPrefix
+            })
+            .ToList();
+
+        var customTagsById = _modTagConfig.CustomTags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Id) && !string.IsNullOrWhiteSpace(tag.Name))
+            .ToDictionary(tag => tag.Id, tag => tag, StringComparer.OrdinalIgnoreCase);
+
+        var customTags = _modTagConfig.CustomTagOrder
+            .Where(id => customTagsById.ContainsKey(id))
+            .Select(id => customTagsById[id])
+            .Concat(_modTagConfig.CustomTags.Where(tag =>
+                !string.IsNullOrWhiteSpace(tag.Id) &&
+                !string.IsNullOrWhiteSpace(tag.Name) &&
+                !_modTagConfig.CustomTagOrder.Any(id => string.Equals(id, tag.Id, StringComparison.OrdinalIgnoreCase))))
+            .Where(tag => !string.IsNullOrWhiteSpace(tag.Id) && !string.IsNullOrWhiteSpace(tag.Name))
+            .Select(tag => new ModTagFilterOption
+            {
+                Key = $"custom:{tag.Id}",
+                TagId = tag.Id,
+                Name = tag.Name,
+                IsFolderTag = false
+            })
+            .ToList();
+
+        TagFilters.Clear();
+        TagFilters.Add(new ModTagFilterOption
+        {
+            Key = "all",
+            Name = "全部标签",
+            IsAllOption = true
+        });
+
+        foreach (var tag in folderTags)
+        {
+            TagFilters.Add(tag);
+        }
+
+        foreach (var tag in customTags)
+        {
+            TagFilters.Add(tag);
+        }
+
+        CustomTagDefinitions.Clear();
+        foreach (var tag in customTags)
+        {
+            CustomTagDefinitions.Add(tag);
+        }
+
+        foreach (var item in TagPanelItems)
+        {
+            DetachTagPanelItem(item);
+        }
+
+        TagPanelItems.Clear();
+        foreach (var tag in folderTags)
+        {
+            var item = new ModTagPanelItem(tag)
+            {
+                IsSelected = selectedChipKeys.Contains(tag.Key)
+            };
+            AttachTagPanelItem(item);
+            TagPanelItems.Add(item);
+        }
+
+        foreach (var tag in customTags)
+        {
+            var item = new ModTagPanelItem(tag)
+            {
+                IsSelected = selectedChipKeys.Contains(tag.Key)
+            };
+            AttachTagPanelItem(item);
+            TagPanelItems.Add(item);
+        }
+
+        SelectedTagFilter = TagFilters.FirstOrDefault(tag => string.Equals(tag.Key, previousKey, StringComparison.OrdinalIgnoreCase))
+            ?? TagFilters.FirstOrDefault();
+
+        OnPropertyChanged(nameof(HasSelectedTagPanelItems));
+        OnPropertyChanged(nameof(CanBatchAddSelectedTags));
+        OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
+    }
+
+    private void AttachTagPanelItem(ModTagPanelItem item)
+    {
+        item.PropertyChanged += HandleTagPanelItemPropertyChanged;
+    }
+
+    private void DetachTagPanelItem(ModTagPanelItem item)
+    {
+        item.PropertyChanged -= HandleTagPanelItemPropertyChanged;
+    }
+
+    private void HandleTagPanelItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(ModTagPanelItem.IsSelected), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(HasSelectedTagPanelItems));
+        OnPropertyChanged(nameof(CanBatchAddSelectedTags));
+        OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
+        ApplyTagFilter();
+    }
+
+    private void ApplyCustomTagsToMod(ModManageItem mod, IReadOnlyDictionary<string, string> customTagNameById)
+    {
+        mod.CustomTags.Clear();
+        var modKey = GetModTagKey(mod);
+        if (string.IsNullOrWhiteSpace(modKey))
+        {
+            mod.NotifyTagChanged();
+            return;
+        }
+
+        if (!_modTagConfig.Assignments.TryGetValue(modKey, out var assignedTagIds) || assignedTagIds == null)
+        {
+            mod.NotifyTagChanged();
+            return;
+        }
+
+        foreach (var tagId in assignedTagIds)
+        {
+            if (!string.IsNullOrWhiteSpace(tagId) &&
+                customTagNameById.TryGetValue(tagId, out var tagName) &&
+                !string.IsNullOrWhiteSpace(tagName))
+            {
+                mod.CustomTags.Add(tagName);
+            }
+        }
+
+        mod.NotifyTagChanged();
+    }
+
+    private void ApplyTagFilter()
+    {
+        FilteredMods.Clear();
+
+        IEnumerable<ModManageItem> source = Mods;
+        var selectedPanelItems = TagPanelItems.Where(item => item.IsSelected).Select(item => item.Option).ToList();
+
+        if (selectedPanelItems.Count > 0)
+        {
+            source = source.Where(mod => selectedPanelItems.Any(option => MatchesTagFilterSingle(mod, option)));
+        }
+        else if (SelectedTagFilter != null && !SelectedTagFilter.IsAllOption)
+        {
+            source = source.Where(mod => MatchesTagFilterSingle(mod, SelectedTagFilter));
+        }
+
+        foreach (var mod in source)
+        {
+            FilteredMods.Add(mod);
+        }
+
+        if (SelectedMod != null && !FilteredMods.Contains(SelectedMod))
+        {
+            SelectedMod = null;
+        }
+
+        RefreshModManageHint();
+    }
+
+    private static bool MatchesTagFilterSingle(ModManageItem mod, ModTagFilterOption option)
+    {
+        if (option.IsFolderTag)
+        {
+            return mod.FolderTags.Any(tag => string.Equals(tag, option.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return mod.CustomTags.Any(tag => string.Equals(tag, option.Name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<string> BuildFolderTagsForMod(string modsPath, string modDirectory, string folderName)
+    {
+        var relative = Path.GetRelativePath(modsPath, modDirectory);
+        var relativeParts = relative
+            .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+        var tags = relativeParts.Length > 1
+            ? relativeParts.Take(relativeParts.Length - 1).Select(NormalizeModFolderName).ToList()
+            : new List<string>();
+
+        var prefixCategory = TryExtractPrefixCategory(folderName);
+        if (!string.IsNullOrWhiteSpace(prefixCategory) &&
+            !tags.Any(tag => string.Equals(tag, prefixCategory, StringComparison.OrdinalIgnoreCase)))
+        {
+            tags.Add(prefixCategory);
+        }
+
+        return tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string NormalizeModFolderName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return trimmed.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
+            ? trimmed[..^".disabled".Length]
+            : trimmed;
+    }
+
+    private static string TryExtractPrefixCategory(string? folderName)
+    {
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = folderName.Trim();
+        var squareMatch = Regex.Match(trimmed, @"^\[(?<name>[^\]]{1,64})\]");
+        if (squareMatch.Success)
+        {
+            return squareMatch.Groups["name"].Value.Trim();
+        }
+
+        var cnSquareMatch = Regex.Match(trimmed, @"^【(?<name>[^】]{1,64})】");
+        if (cnSquareMatch.Success)
+        {
+            return cnSquareMatch.Groups["name"].Value.Trim();
+        }
+
+        return string.Empty;
+    }
+
+    private static string GetModTagKey(ModManageItem mod)
+    {
+        if (!string.IsNullOrWhiteSpace(mod.UniqueId))
+        {
+            return $"uid:{mod.UniqueId.Trim().ToLowerInvariant()}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(mod.FolderName))
+        {
+            return $"folder:{mod.FolderName.Trim().ToLowerInvariant()}";
+        }
+
+        return string.IsNullOrWhiteSpace(mod.DirectoryName)
+            ? string.Empty
+            : $"id:{mod.DirectoryName.Trim().ToLowerInvariant()}";
+    }
+
+    [RelayCommand]
+    private void AddCustomTag()
+    {
+        var name = (NewCustomTagName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Status = "请输入要创建的标签名称";
+            return;
+        }
+
+        if (_modTagConfig.CustomTags.Any(tag => string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "标签已存在";
+            return;
+        }
+
+        var newTagId = Guid.NewGuid().ToString("N");
+        _modTagConfig.CustomTags.Add(new ModCustomTagDefinition
+        {
+            Id = newTagId,
+            Name = name
+        });
+        _modTagConfig.CustomTagOrder.Add(newTagId);
+
+        if (!ModTagConfigService.Save(_currentModsPathForTagConfig, _modTagConfig))
+        {
+            Status = "保存标签失败";
+            return;
+        }
+
+        NewCustomTagName = string.Empty;
+        LoadAndApplyTags(_currentModsPathForTagConfig);
+        ApplyTagFilter();
+        Status = "已创建自定义标签";
+    }
+
+    [RelayCommand]
+    private void RenameCustomTag()
+    {
+        if (SelectedCustomTag == null || string.IsNullOrWhiteSpace(SelectedCustomTag.TagId))
+        {
+            Status = "请先选择一个自定义标签";
+            return;
+        }
+
+        var newName = (RenameCustomTagName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            Status = "请输入新的标签名称";
+            return;
+        }
+
+        if (_modTagConfig.CustomTags.Any(tag =>
+                !string.Equals(tag.Id, SelectedCustomTag.TagId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(tag.Name, newName, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "目标标签名称已存在";
+            return;
+        }
+
+        var target = _modTagConfig.CustomTags.FirstOrDefault(tag => string.Equals(tag.Id, SelectedCustomTag.TagId, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            return;
+        }
+
+        target.Name = newName;
+        if (!ModTagConfigService.Save(_currentModsPathForTagConfig, _modTagConfig))
+        {
+            Status = "保存标签失败";
+            return;
+        }
+
+        LoadAndApplyTags(_currentModsPathForTagConfig);
+        ApplyTagFilter();
+        Status = "标签已重命名";
+    }
+
+    [RelayCommand]
+    private void DeleteCustomTag()
+    {
+        if (SelectedCustomTag == null || string.IsNullOrWhiteSpace(SelectedCustomTag.TagId))
+        {
+            Status = "请先选择一个自定义标签";
+            return;
+        }
+
+        _modTagConfig.CustomTags.RemoveAll(tag => string.Equals(tag.Id, SelectedCustomTag.TagId, StringComparison.OrdinalIgnoreCase));
+        _modTagConfig.CustomTagOrder.RemoveAll(id => string.Equals(id, SelectedCustomTag.TagId, StringComparison.OrdinalIgnoreCase));
+
+        foreach (var key in _modTagConfig.Assignments.Keys.ToList())
+        {
+            var list = _modTagConfig.Assignments[key];
+            list.RemoveAll(id => string.Equals(id, SelectedCustomTag.TagId, StringComparison.OrdinalIgnoreCase));
+            if (list.Count == 0)
+            {
+                _modTagConfig.Assignments.Remove(key);
+            }
+        }
+
+        if (!ModTagConfigService.Save(_currentModsPathForTagConfig, _modTagConfig))
+        {
+            Status = "保存标签失败";
+            return;
+        }
+
+        LoadAndApplyTags(_currentModsPathForTagConfig);
+        ApplyTagFilter();
+        Status = "标签已删除";
+    }
+
+    [RelayCommand]
+    private void BatchBindSelectedTagsToSelectedMod()
+    {
+        BatchApplySelectedTagChips(bind: true);
+    }
+
+    [RelayCommand]
+    private void BatchUnbindSelectedTagsFromSelectedMod()
+    {
+        BatchApplySelectedTagChips(bind: false);
+    }
+
+    private void BatchApplySelectedTagChips(bool bind)
+    {
+        if (SelectedMod == null)
+        {
+            Status = "请先选择一个 Mod";
+            return;
+        }
+
+        var selectedChips = TagPanelItems
+            .Where(item => item.IsSelected && item.IsCustomTag && !string.IsNullOrWhiteSpace(item.TagId))
+            .ToList();
+        if (selectedChips.Count == 0)
+        {
+            Status = "请先在标签面板中选中至少一个自定义标签";
+            return;
+        }
+
+        var key = GetModTagKey(SelectedMod);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            Status = "当前 Mod 无法映射标签键";
+            return;
+        }
+
+        if (!_modTagConfig.Assignments.TryGetValue(key, out var assigned))
+        {
+            assigned = [];
+            _modTagConfig.Assignments[key] = assigned;
+        }
+
+        var changed = false;
+        foreach (var chip in selectedChips)
+        {
+            if (bind)
+            {
+                if (!assigned.Any(id => string.Equals(id, chip.TagId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    assigned.Add(chip.TagId);
+                    changed = true;
+                }
+            }
+            else
+            {
+                var removed = assigned.RemoveAll(id => string.Equals(id, chip.TagId, StringComparison.OrdinalIgnoreCase));
+                changed = changed || removed > 0;
+            }
+        }
+
+        if (assigned.Count == 0)
+        {
+            _modTagConfig.Assignments.Remove(key);
+        }
+
+        if (!changed)
+        {
+            Status = bind ? "当前 Mod 已包含选中标签" : "当前 Mod 不包含选中标签";
+            return;
+        }
+
+        if (!ModTagConfigService.Save(_currentModsPathForTagConfig, _modTagConfig))
+        {
+            Status = "保存标签失败";
+            return;
+        }
+
+        LoadAndApplyTags(_currentModsPathForTagConfig);
+        ApplyTagFilter();
+        InlineTagHint = bind ? "已绑定选中标签到当前 Mod" : "已从当前 Mod 解绑选中标签";
     }
 
     [RelayCommand]
@@ -1262,6 +2011,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             OnPropertyChanged(nameof(CanDisableSelectedMod));
             OnPropertyChanged(nameof(ModsSummary));
             OnPropertyChanged(nameof(SelectedModDetails));
+            ApplyTagFilter();
         }
         catch (Exception ex)
         {
@@ -1311,6 +2061,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             OnPropertyChanged(nameof(CanDisableSelectedMod));
             OnPropertyChanged(nameof(ModsSummary));
             OnPropertyChanged(nameof(SelectedModDetails));
+            ApplyTagFilter();
         }
         catch (Exception ex)
         {
@@ -1338,6 +2089,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 : Mods[Math.Clamp(targetIndex, 0, Mods.Count - 1)];
             target.UpdateStatus = "已卸载";
             Status = $"已卸载 Mod: {target.DisplayName}";
+            ApplyTagFilter();
             RefreshModManageHint($"已卸载 {target.DisplayName}，可在下载页重新安装");
             OnPropertyChanged(nameof(ModsSummary));
         }
@@ -2002,14 +2754,19 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         {
             if (OperatingSystem.IsWindows())
             {
-                var candidates = new[]
+                var steamPath = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null)?.ToString();
+                if (string.IsNullOrWhiteSpace(steamPath))
                 {
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steam.exe"),
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Steam", "steam.exe")
-                };
+                    steamPath = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null)?.ToString();
+                }
 
-                var steamExe = candidates.FirstOrDefault(File.Exists);
-                if (string.IsNullOrWhiteSpace(steamExe))
+                if (string.IsNullOrWhiteSpace(steamPath) || !Directory.Exists(steamPath))
+                {
+                    return (false, "未找到 Steam 安装目录。");
+                }
+
+                var steamExe = Path.Combine(steamPath, "steam.exe");
+                if (!File.Exists(steamExe))
                 {
                     return (false, "未找到 steam.exe。");
                 }
@@ -2050,7 +2807,34 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     {
         try
         {
-            var configFiles = GetSteamLocalConfigFilesInPriorityOrder().ToList();
+            List<string> configFiles;
+
+            if (OperatingSystem.IsWindows())
+            {
+                var steamPath = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null)?.ToString();
+                if (string.IsNullOrWhiteSpace(steamPath))
+                {
+                    steamPath = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null)?.ToString();
+                }
+
+                if (string.IsNullOrWhiteSpace(steamPath) || !Directory.Exists(steamPath))
+                {
+                    return (false, 0, 0, "未找到 Steam 安装目录。请先启动 Steam，再重试。");
+                }
+
+                var userdataDir = Path.Combine(steamPath, "userdata");
+                if (!Directory.Exists(userdataDir))
+                {
+                    return (false, 0, 0, "未找到 Steam userdata 目录。请确认本机 Steam 已登录过账号。");
+                }
+
+                configFiles = GetSteamLocalConfigFilesInPriorityOrder(userdataDir);
+            }
+            else
+            {
+                configFiles = GetSteamLocalConfigFilesInPriorityOrderFallback();
+            }
+
             if (configFiles.Count == 0)
             {
                 return (false, 0, 0, "未找到任何 Steam 账号配置（userdata 下无 localconfig.vdf）。");
@@ -2090,7 +2874,32 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         }
     }
 
-    private IEnumerable<string> GetSteamLocalConfigFilesInPriorityOrder()
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static List<string> GetSteamLocalConfigFilesInPriorityOrder(string userdataDir)
+    {
+        var result = new List<string>();
+
+        var activeUserText = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam\ActiveProcess", "ActiveUser", null)?.ToString();
+        if (long.TryParse(activeUserText, out _))
+        {
+            var activeConfig = Path.Combine(userdataDir, activeUserText, "config", "localconfig.vdf");
+            if (File.Exists(activeConfig))
+            {
+                result.Add(activeConfig);
+            }
+        }
+
+        var others = Directory.GetDirectories(userdataDir)
+            .Where(path => long.TryParse(Path.GetFileName(path), out _))
+            .Select(path => Path.Combine(path, "config", "localconfig.vdf"))
+            .Where(File.Exists)
+            .Where(path => !result.Contains(path, StringComparer.OrdinalIgnoreCase));
+
+        result.AddRange(others);
+        return result;
+    }
+
+    private List<string> GetSteamLocalConfigFilesInPriorityOrderFallback()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ordered = new List<string>();
@@ -2573,7 +3382,13 @@ public partial class ModManageItem : ObservableObject
     private string _directoryName = string.Empty;
 
     [ObservableProperty]
+    private string _folderName = string.Empty;
+
+    [ObservableProperty]
     private string _fullPath = string.Empty;
+
+    [ObservableProperty]
+    private string _uniqueId = string.Empty;
 
     [ObservableProperty]
     private string _author = string.Empty;
@@ -2590,11 +3405,74 @@ public partial class ModManageItem : ObservableObject
     [ObservableProperty]
     private string _updateStatus = "待检查";
 
+    public ObservableCollection<string> FolderTags { get; } = [];
+
+    public ObservableCollection<string> CustomTags { get; } = [];
+
+    public IEnumerable<string> AllTags => FolderTags
+        .Concat(CustomTags)
+        .Where(tag => !string.IsNullOrWhiteSpace(tag))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public IEnumerable<string> DisplayTags
+    {
+        get
+        {
+            var prefixTag = ExtractPrefixCategory(FolderName);
+            var folderDisplay = FolderTags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                .Select(tag => string.Equals(tag, prefixTag, StringComparison.OrdinalIgnoreCase)
+                    ? $"[Prefix] {tag}"
+                    : $"[Folder] {tag}");
+
+            var customDisplay = CustomTags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                .Select(tag => $"[Custom] {tag}");
+
+            return folderDisplay.Concat(customDisplay);
+        }
+    }
+
+    public bool HasAnyTag => DisplayTags.Any();
+
+    public string TagsDisplay => !AllTags.Any() ? "无标签" : string.Join(" / ", DisplayTags);
+
     public string EnableStateText => IsEnabled ? "已启用" : "已禁用";
 
     partial void OnIsEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(EnableStateText));
+    }
+
+    public void NotifyTagChanged()
+    {
+        OnPropertyChanged(nameof(AllTags));
+        OnPropertyChanged(nameof(DisplayTags));
+        OnPropertyChanged(nameof(HasAnyTag));
+        OnPropertyChanged(nameof(TagsDisplay));
+    }
+
+    private static string ExtractPrefixCategory(string? folderName)
+    {
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = folderName.Trim();
+        var squareMatch = Regex.Match(trimmed, @"^\[(?<name>[^\]]{1,64})\]");
+        if (squareMatch.Success)
+        {
+            return squareMatch.Groups["name"].Value.Trim();
+        }
+
+        var cnSquareMatch = Regex.Match(trimmed, @"^【(?<name>[^】]{1,64})】");
+        if (cnSquareMatch.Success)
+        {
+            return cnSquareMatch.Groups["name"].Value.Trim();
+        }
+
+        return string.Empty;
     }
 }
 

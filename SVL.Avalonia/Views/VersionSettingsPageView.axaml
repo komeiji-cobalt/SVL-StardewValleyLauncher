@@ -383,6 +383,68 @@
             </Border>
 
             <Border Classes="hintCard" Padding="14,12">
+              <StackPanel Spacing="10">
+                <TextBlock Text="Tag 筛选与管理" Classes="sectionTitle" />
+
+                <ComboBox ItemsSource="{Binding TagFilters}" SelectedItem="{Binding SelectedTagFilter}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModTagFilterOption">
+                      <TextBlock Text="{Binding DisplayText}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <ItemsControl ItemsSource="{Binding TagPanelItems}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModTagPanelItem">
+                      <CheckBox Content="{Binding DisplayText}"
+                                IsChecked="{Binding IsSelected}"
+                                Margin="0,0,8,8" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="自定义Tag" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                  <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding NewCustomTagName}" Watermark="输入新标签名称" Margin="0,0,8,8" />
+                  <Button Grid.Row="0" Grid.Column="1" Content="新增" Command="{Binding AddCustomTagCommand}" MinWidth="70" />
+
+                  <ComboBox Grid.Row="1" Grid.Column="0" ItemsSource="{Binding CustomTagDefinitions}" SelectedItem="{Binding SelectedCustomTag}" Margin="0,0,8,0">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ModTagFilterOption">
+                        <TextBlock Text="{Binding Name}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <Button Content="改名" Command="{Binding RenameCustomTagCommand}" IsEnabled="{Binding HasSelectedCustomTag}" />
+                    <Button Content="删除" Command="{Binding DeleteCustomTagCommand}" IsEnabled="{Binding HasSelectedCustomTag}" />
+                  </StackPanel>
+                </Grid>
+
+                <TextBox Text="{Binding RenameCustomTagName}" Watermark="重命名选中标签" IsEnabled="{Binding HasSelectedCustomTag}" />
+
+                <WrapPanel>
+                  <Button Content="绑定选中标签"
+                          Command="{Binding BatchBindSelectedTagsToSelectedModCommand}"
+                          IsEnabled="{Binding CanBatchAddSelectedTags}"
+                          Margin="0,0,8,8" />
+                  <Button Content="解绑选中标签"
+                          Command="{Binding BatchUnbindSelectedTagsFromSelectedModCommand}"
+                          IsEnabled="{Binding CanBatchRemoveSelectedTags}"
+                          Margin="0,0,8,8" />
+                </WrapPanel>
+
+                <TextBlock Text="{Binding InlineTagHint}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="hintCard" Padding="14,12">
               <WrapPanel>
                 <Button Content="{Binding OpenModsFolderButtonText}"
                         Command="{Binding OpenCurrentInstanceModsFolderCommand}"
@@ -464,7 +526,7 @@
                   </Grid>
                 </Border>
 
-                <ListBox ItemsSource="{Binding Mods}"
+                <ListBox ItemsSource="{Binding FilteredMods}"
                          SelectedItem="{Binding SelectedMod}"
                          MaxHeight="450"
                          Background="Transparent"
@@ -502,6 +564,10 @@
                               <Run Text="{Binding #Root.DataContext.ModDescriptionLabelText}" />
                               <Run Text="{Binding Description}" />
                             </TextBlock>
+                            <TextBlock Margin="0,4,0,0" Opacity="0.72" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasAnyTag}">
+                              <Run Text="Tag: " />
+                              <Run Text="{Binding TagsDisplay}" />
+                            </TextBlock>
                           </StackPanel>
 
                           <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
@@ -534,14 +600,6 @@
               <StackPanel Spacing="10">
                 <TextBlock Text="启动选项" Classes="sectionTitle" />
 
-                <TextBlock Text="{Binding DetectedGamePathLabelText}" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding DetectedGamePath}" TextWrapping="Wrap" Opacity="0.84" />
-
-                <TextBlock Text="{Binding DefaultLaunchModeLabelText}" FontWeight="SemiBold" />
-                <ComboBox ItemsSource="{Binding LaunchModes}" SelectedItem="{Binding SelectedLaunchMode}" />
-
-                <CheckBox Content="{Binding SafeLaunchCheckBoxText}" IsChecked="{Binding EnableSafeLaunch}" />
-
                 <TextBlock Text="窗口标题" FontWeight="SemiBold" />
                 <TextBox Text="{Binding GameWindowTitle}" Watermark="例如: {InstanceName} - SVL" />
 
@@ -553,9 +611,7 @@
                          Watermark="例如: --debug --loglevel trace" />
 
                 <WrapPanel>
-                  <Button Content="{Binding RefreshDetectedPathButtonText}" Command="{Binding RefreshDetectedPathCommand}" Margin="0,0,8,8" />
                   <Button Content="重置默认" Command="{Binding ResetStartupOptionsCommand}" Margin="0,0,8,8" />
-                  <Button Content="{Binding SaveVersionSettingsButtonText}" Command="{Binding SaveVersionSettingsCommand}" Margin="0,0,8,8" />
                   <Button Content="{Binding SaveInstanceSettingsButtonText}" Command="{Binding SaveInstanceSettingsCommand}" Margin="0,0,8,8" />
                 </WrapPanel>
               </StackPanel>
