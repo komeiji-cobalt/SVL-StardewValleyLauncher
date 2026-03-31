@@ -73,6 +73,15 @@ public partial class SettingsPageViewModel : ObservableObject
     private string _saveButtonText = "保存设置";
 
     [ObservableProperty]
+    private string _instanceAutoConnectLabelText = "启动时自动连接服务器";
+
+    [ObservableProperty]
+    private string _instanceServerAddressLabelText = "服务器地址";
+
+    [ObservableProperty]
+    private string _instanceSteamInviteCodeLabelText = "Steam 邀请码";
+
+    [ObservableProperty]
     private string _settingsPath = string.Empty;
 
     [ObservableProperty]
@@ -151,7 +160,28 @@ public partial class SettingsPageViewModel : ObservableObject
     private string _launcherAppName = "SVL";
 
     [ObservableProperty]
+    private bool _instanceAutoConnectServer;
+
+    [ObservableProperty]
+    private string _instanceServerAddress = string.Empty;
+
+    [ObservableProperty]
+    private string _instanceSteamInviteCode = string.Empty;
+
+    [ObservableProperty]
     private bool _enableDownloadCache = true;
+
+    [ObservableProperty]
+    private bool _enableDownloadProxy;
+
+    [ObservableProperty]
+    private string _downloadProxyUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _downloadProxyUserName = string.Empty;
+
+    [ObservableProperty]
+    private string _downloadProxyPassword = string.Empty;
 
     [ObservableProperty]
     private bool _enableDownloadFloatingTaskButton = true;
@@ -300,7 +330,14 @@ public partial class SettingsPageViewModel : ObservableObject
         GameWindowTitle = settings.GameWindowTitle;
         LauncherTitle = settings.LauncherTitle;
         LauncherAppName = settings.LauncherAppName;
+        InstanceAutoConnectServer = settings.InstanceAutoConnectServer;
+        InstanceServerAddress = settings.InstanceServerAddress;
+        InstanceSteamInviteCode = settings.InstanceSteamInviteCode;
         EnableDownloadCache = settings.EnableDownloadCache;
+        EnableDownloadProxy = settings.EnableDownloadProxy;
+        DownloadProxyUrl = settings.DownloadProxyUrl;
+        DownloadProxyUserName = settings.DownloadProxyUserName;
+        DownloadProxyPassword = settings.DownloadProxyPassword;
         EnableDownloadFloatingTaskButton = settings.EnableDownloadFloatingTaskButton;
         EnableAutoUpdateCheck = settings.EnableAutoUpdateCheck;
         SelectedUpdateChannel = string.IsNullOrWhiteSpace(settings.UpdateChannel) ? "稳定版" : settings.UpdateChannel;
@@ -319,7 +356,7 @@ public partial class SettingsPageViewModel : ObservableObject
         SelectedLogLevel = string.IsNullOrWhiteSpace(settings.LogLevel) ? "Info" : settings.LogLevel;
         MinimizeToTrayOnStartup = settings.MinimizeToTrayOnStartup;
         MinimizeToTrayOnClose = settings.MinimizeToTrayOnClose;
-        SelectedTabIndex = settings.SettingsTabIndex;
+        SelectedTabIndex = Math.Clamp(settings.SettingsTabIndex, 0, Tabs.Count - 1);
         NexusApiKey = settings.NexusApiKey;
         NexusOAuthAccessToken = settings.NexusOAuthAccessToken;
         NexusOAuthRefreshToken = settings.NexusOAuthRefreshToken;
@@ -332,36 +369,42 @@ public partial class SettingsPageViewModel : ObservableObject
 
     private AppUserSettings BuildSettings()
     {
-        return new AppUserSettings
-        {
-            GameWindowTitle = GameWindowTitle,
-            LauncherTitle = LauncherTitle,
-            LauncherAppName = LauncherAppName,
-            EnableDownloadCache = EnableDownloadCache,
-            EnableDownloadFloatingTaskButton = EnableDownloadFloatingTaskButton,
-            EnableAutoUpdateCheck = EnableAutoUpdateCheck,
-            UpdateChannel = SelectedUpdateChannel,
-            PreferredUpdateSource = SelectedUpdateSource,
-            SkippedLauncherVersion = SkippedUpdateVersion,
-            RegisterNxmProtocolOnStartup = RegisterNxmProtocolOnStartup,
-            CollectionInstallConflictStrategy = SelectedCollectionConflictStrategy,
-            CollectionDownloadParallelism = Math.Clamp(SelectedCollectionDownloadParallelism, 1, 8),
-            ThemeMode = SelectedThemeMode,
-            UiLanguage = SelectedUiLanguage,
-            ShowNotifications = ShowNotifications,
-            DebugMode = DebugMode,
-            LogLevel = SelectedLogLevel,
-            MinimizeToTrayOnStartup = MinimizeToTrayOnStartup,
-            MinimizeToTrayOnClose = MinimizeToTrayOnClose,
-            SettingsTabIndex = SelectedTabIndex,
-            NexusApiKey = NexusApiKey,
-            NexusOAuthAccessToken = NexusOAuthAccessToken,
-            NexusOAuthRefreshToken = NexusOAuthRefreshToken,
-            NexusOAuthIdToken = NexusOAuthIdToken,
-            NexusUserName = NexusUserName,
-            NexusMembershipType = NexusMembershipType,
-            NexusUserId = NexusUserId
-        };
+        var settings = _settingsStore.Load();
+        settings.GameWindowTitle = GameWindowTitle;
+        settings.LauncherTitle = LauncherTitle;
+        settings.LauncherAppName = LauncherAppName;
+        settings.InstanceAutoConnectServer = InstanceAutoConnectServer;
+        settings.InstanceServerAddress = InstanceServerAddress?.Trim() ?? string.Empty;
+        settings.InstanceSteamInviteCode = InstanceSteamInviteCode?.Trim() ?? string.Empty;
+        settings.EnableDownloadCache = EnableDownloadCache;
+        settings.EnableDownloadProxy = EnableDownloadProxy;
+        settings.DownloadProxyUrl = DownloadProxyUrl?.Trim() ?? string.Empty;
+        settings.DownloadProxyUserName = DownloadProxyUserName?.Trim() ?? string.Empty;
+        settings.DownloadProxyPassword = DownloadProxyPassword ?? string.Empty;
+        settings.EnableDownloadFloatingTaskButton = EnableDownloadFloatingTaskButton;
+        settings.EnableAutoUpdateCheck = EnableAutoUpdateCheck;
+        settings.UpdateChannel = SelectedUpdateChannel;
+        settings.PreferredUpdateSource = SelectedUpdateSource;
+        settings.SkippedLauncherVersion = SkippedUpdateVersion;
+        settings.RegisterNxmProtocolOnStartup = RegisterNxmProtocolOnStartup;
+        settings.CollectionInstallConflictStrategy = SelectedCollectionConflictStrategy;
+        settings.CollectionDownloadParallelism = Math.Clamp(SelectedCollectionDownloadParallelism, 1, 8);
+        settings.ThemeMode = SelectedThemeMode;
+        settings.UiLanguage = SelectedUiLanguage;
+        settings.ShowNotifications = ShowNotifications;
+        settings.DebugMode = DebugMode;
+        settings.LogLevel = SelectedLogLevel;
+        settings.MinimizeToTrayOnStartup = MinimizeToTrayOnStartup;
+        settings.MinimizeToTrayOnClose = MinimizeToTrayOnClose;
+        settings.SettingsTabIndex = Math.Clamp(SelectedTabIndex, 0, Tabs.Count - 1);
+        settings.NexusApiKey = NexusApiKey;
+        settings.NexusOAuthAccessToken = NexusOAuthAccessToken;
+        settings.NexusOAuthRefreshToken = NexusOAuthRefreshToken;
+        settings.NexusOAuthIdToken = NexusOAuthIdToken;
+        settings.NexusUserName = NexusUserName;
+        settings.NexusMembershipType = NexusMembershipType;
+        settings.NexusUserId = NexusUserId;
+        return settings;
     }
 
     private void ApplyLocalizedTexts()
@@ -381,6 +424,9 @@ public partial class SettingsPageViewModel : ObservableObject
         ThemeModeLabelText = _localizationService.Get("Settings.ThemeMode");
         UiLanguageLabelText = _localizationService.Get("Settings.UiLanguage");
         SaveButtonText = _localizationService.Get("Settings.Save");
+        InstanceAutoConnectLabelText = _localizationService.Get("Settings.Basic.AutoConnect");
+        InstanceServerAddressLabelText = _localizationService.Get("Settings.Basic.ServerAddress");
+        InstanceSteamInviteCodeLabelText = _localizationService.Get("Settings.Basic.SteamInviteCode");
         OperationPathHint = _localizationService.Get("Settings.OperationPath");
         UpdateCardTitleText = _localizationService.Get("Settings.Card.Update");
         AutoUpdateCheckLabelText = _localizationService.Get("Settings.Update.AutoCheck");
@@ -421,13 +467,20 @@ public partial class SettingsPageViewModel : ObservableObject
 
     partial void OnSelectedTabIndexChanged(int value)
     {
+        var normalizedIndex = Math.Clamp(value, 0, Tabs.Count - 1);
+        if (normalizedIndex != value)
+        {
+            SelectedTabIndex = normalizedIndex;
+            return;
+        }
+
         OnPropertyChanged(nameof(IsBasicTab));
         OnPropertyChanged(nameof(IsDownloadTab));
         OnPropertyChanged(nameof(IsPersonalizationTab));
         OnPropertyChanged(nameof(IsOtherTab));
         OnPropertyChanged(nameof(IsAboutTab));
 
-        StatusMessage = $"当前标签：{Tabs[value]}";
+        StatusMessage = $"当前标签：{Tabs[normalizedIndex]}";
     }
 
     partial void OnLauncherTitleChanged(string value)
@@ -546,9 +599,16 @@ public partial class SettingsPageViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SelectTab(int index)
+    private void SelectTab(object? index)
     {
-        SelectedTabIndex = index;
+        var parsed = index switch
+        {
+            int intValue => intValue,
+            string textValue when int.TryParse(textValue, out var intValue) => intValue,
+            _ => SelectedTabIndex
+        };
+
+        SelectedTabIndex = Math.Clamp(parsed, 0, Tabs.Count - 1);
     }
 
     [RelayCommand]
@@ -562,7 +622,15 @@ public partial class SettingsPageViewModel : ObservableObject
     [RelayCommand]
     private async Task OpenNexusLoginAsync()
     {
-        var result = await _dialogService.ShowNexusLoginAsync(NexusApiKey, _nexusAuthService, _nexusOAuthService);
+        var result = await _dialogService.ShowNexusLoginAsync(
+            NexusApiKey,
+            NexusOAuthAccessToken,
+            NexusOAuthRefreshToken,
+            NexusUserName,
+            NexusMembershipType,
+            NexusUserId,
+            _nexusAuthService,
+            _nexusOAuthService);
         if (result == null)
         {
             return;

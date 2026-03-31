@@ -17,11 +17,36 @@
         <TextBlock Text="参数与行为配置中心" Opacity="0.75" />
         <Border Classes="hintCard">
           <StackPanel Spacing="6">
-            <Button Classes="settingsNav" Classes.selected="{Binding IsBasicTab}" Content="› {Binding TabBasicText}" Command="{Binding SelectTabCommand}" CommandParameter="0" Margin="0,0,0,4" />
-            <Button Classes="settingsNav" Classes.selected="{Binding IsDownloadTab}" Content="› {Binding TabDownloadText}" Command="{Binding SelectTabCommand}" CommandParameter="1" Margin="0,0,0,4" />
-            <Button Classes="settingsNav" Classes.selected="{Binding IsPersonalizationTab}" Content="› {Binding TabPersonalizationText}" Command="{Binding SelectTabCommand}" CommandParameter="2" Margin="0,0,0,4" />
-            <Button Classes="settingsNav" Classes.selected="{Binding IsOtherTab}" Content="› {Binding TabOtherText}" Command="{Binding SelectTabCommand}" CommandParameter="3" Margin="0,0,0,4" />
-            <Button Classes="settingsNav" Classes.selected="{Binding IsAboutTab}" Content="› {Binding TabAboutText}" Command="{Binding SelectTabCommand}" CommandParameter="4" Margin="0,0,0,4" />
+            <Button Classes="settingsNav" Classes.selected="{Binding IsBasicTab}" Command="{Binding SelectTabCommand}" CommandParameter="0" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="36">
+              <TextBlock>
+                <Run Text="› " />
+                <Run Text="{Binding TabBasicText}" />
+              </TextBlock>
+            </Button>
+            <Button Classes="settingsNav" Classes.selected="{Binding IsDownloadTab}" Command="{Binding SelectTabCommand}" CommandParameter="1" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="36">
+              <TextBlock>
+                <Run Text="› " />
+                <Run Text="{Binding TabDownloadText}" />
+              </TextBlock>
+            </Button>
+            <Button Classes="settingsNav" Classes.selected="{Binding IsPersonalizationTab}" Command="{Binding SelectTabCommand}" CommandParameter="2" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="36">
+              <TextBlock>
+                <Run Text="› " />
+                <Run Text="{Binding TabPersonalizationText}" />
+              </TextBlock>
+            </Button>
+            <Button Classes="settingsNav" Classes.selected="{Binding IsOtherTab}" Command="{Binding SelectTabCommand}" CommandParameter="3" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="36">
+              <TextBlock>
+                <Run Text="› " />
+                <Run Text="{Binding TabOtherText}" />
+              </TextBlock>
+            </Button>
+            <Button Classes="settingsNav" Classes.selected="{Binding IsAboutTab}" Command="{Binding SelectTabCommand}" CommandParameter="4" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="36">
+              <TextBlock>
+                <Run Text="› " />
+                <Run Text="{Binding TabAboutText}" />
+              </TextBlock>
+            </Button>
           </StackPanel>
         </Border>
       </StackPanel>
@@ -55,6 +80,11 @@
               <TextBox Text="{Binding LauncherTitle}" />
               <TextBlock Text="启动器简称" />
               <TextBox Text="{Binding LauncherAppName}" />
+              <CheckBox Content="{Binding InstanceAutoConnectLabelText}" IsChecked="{Binding InstanceAutoConnectServer}" Margin="0,6,0,0" />
+              <TextBlock Text="{Binding InstanceServerAddressLabelText}" />
+              <TextBox Text="{Binding InstanceServerAddress}" Watermark="例如: 127.0.0.1:24642" />
+              <TextBlock Text="{Binding InstanceSteamInviteCodeLabelText}" />
+              <TextBox Text="{Binding InstanceSteamInviteCode}" Watermark="例如: ABCD-EFGH-IJKL" />
             </StackPanel>
           </Border>
 
@@ -66,6 +96,14 @@
               </StackPanel>
               <TextBlock Text="下载任务与 Collection 处理参数" Opacity="0.72" TextWrapping="Wrap" />
               <CheckBox Content="启用下载缓存" IsChecked="{Binding EnableDownloadCache}" />
+              <CheckBox Content="启用下载代理" IsChecked="{Binding EnableDownloadProxy}" />
+              <TextBlock Text="代理地址 (http://host:port)" />
+              <TextBox Text="{Binding DownloadProxyUrl}" Watermark="例如: http://127.0.0.1:7890" />
+              <TextBlock Text="提示：Clash 等本地代理通常无需填写用户名/密码。" Opacity="0.68" TextWrapping="Wrap" />
+              <TextBlock Text="代理用户名（可选）" />
+              <TextBox Text="{Binding DownloadProxyUserName}" />
+              <TextBlock Text="代理密码（可选）" />
+              <TextBox Text="{Binding DownloadProxyPassword}" PasswordChar="*" />
               <CheckBox Content="启用任务浮动按钮" IsChecked="{Binding EnableDownloadFloatingTaskButton}" />
               <TextBlock Text="Collection 冲突策略" />
               <ComboBox ItemsSource="{Binding CollectionConflictStrategies}" SelectedItem="{Binding SelectedCollectionConflictStrategy}" />

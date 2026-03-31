@@ -10,8 +10,14 @@ namespace SVL.Avalonia.ViewModels;
 
 public partial class NexusLoginDialogViewModel : ObservableObject
 {
+    private static string _sharedLastOAuthAuthorizeUrl = string.Empty;
     private readonly NexusAuthService _nexusAuthService;
     private readonly NexusOAuthService _nexusOAuthService;
+    private readonly string _existingOAuthAccessToken;
+    private readonly string _existingOAuthRefreshToken;
+    private readonly string _existingUserName;
+    private readonly string _existingMembershipType;
+    private readonly int _existingUserId;
     private NexusOAuthStartResult? _oauthStart;
     private string _lastOAuthAuthorizeUrl = string.Empty;
 
@@ -25,6 +31,20 @@ public partial class NexusLoginDialogViewModel : ObservableObject
     private bool _isBusy;
 
     [ObservableProperty]
+    private bool _isLoggedIn;
+
+    public bool IsNotLoggedIn => !IsLoggedIn;
+
+    [ObservableProperty]
+    private string _userName = string.Empty;
+
+    [ObservableProperty]
+    private string _membershipType = string.Empty;
+
+    [ObservableProperty]
+    private string _loginButtonText = "🔑 登录 Nexus Mods";
+
+    [ObservableProperty]
     private string _oauthCallbackInput = string.Empty;
 
     [ObservableProperty]
@@ -34,13 +54,101 @@ public partial class NexusLoginDialogViewModel : ObservableObject
 
     public bool CanCopyAuthorizeUrl => !string.IsNullOrWhiteSpace(_lastOAuthAuthorizeUrl);
 
+    public bool ShowReopenBrowserButton => CanRetryOpenAuthorizePage;
+
+    public string RollbackAuthorizeUrlPreview => BuildAuthorizeUrlPreview(_lastOAuthAuthorizeUrl);
+
     public event EventHandler<NexusLoginResult?>? RequestClose;
 
-    public NexusLoginDialogViewModel(NexusAuthService nexusAuthService, NexusOAuthService nexusOAuthService, string existingApiKey)
+    public NexusLoginDialogViewModel(
+        NexusAuthService nexusAuthService,
+        NexusOAuthService nexusOAuthService,
+        string existingApiKey,
+        string existingOAuthAccessToken,
+        string existingOAuthRefreshToken,
+        string existingUserName,
+        string existingMembershipType,
+        int existingUserId)
     {
         _nexusAuthService = nexusAuthService;
         _nexusOAuthService = nexusOAuthService;
         ApiKey = existingApiKey;
+        _existingOAuthAccessToken = existingOAuthAccessToken ?? string.Empty;
+        _existingOAuthRefreshToken = existingOAuthRefreshToken ?? string.Empty;
+        _existingUserName = existingUserName ?? string.Empty;
+        _existingMembershipType = existingMembershipType ?? string.Empty;
+        _existingUserId = existingUserId;
+        _lastOAuthAuthorizeUrl = _sharedLastOAuthAuthorizeUrl;
+    }
+
+    public async Task InitializeAsync()
+    {
+        await LoadLoginStateAsync();
+    }
+
+    private async Task LoadLoginStateAsync()
+    {
+        try
+        {
+            StatusMessage = "加载中...";
+
+            if (string.IsNullOrWhiteSpace(_existingOAuthAccessToken))
+            {
+                IsLoggedIn = false;
+                StatusMessage = string.IsNullOrWhiteSpace(ApiKey)
+                    ? "未登录"
+                    : "已填写 API Key，可点击验证登录";
+                return;
+            }
+
+            UserName = _existingUserName;
+            MembershipType = _existingMembershipType;
+
+            var validate = await _nexusOAuthService.ValidateAccessTokenAsync(_existingOAuthAccessToken);
+            if (validate.IsSuccess)
+            {
+                IsLoggedIn = true;
+                UserName = string.IsNullOrWhiteSpace(validate.UserName) ? UserName : validate.UserName;
+                MembershipType = string.IsNullOrWhiteSpace(validate.MembershipType) ? MembershipType : validate.MembershipType;
+                StatusMessage = $"已登录: {UserName}";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_existingOAuthRefreshToken))
+            {
+                StatusMessage = "正在刷新 Token...";
+                var refresh = await _nexusOAuthService.RefreshAccessTokenAsync(_existingOAuthRefreshToken);
+                if (refresh.IsSuccess && refresh.Token != null)
+                {
+                    var profile = refresh.Profile;
+                    IsLoggedIn = true;
+                    UserName = string.IsNullOrWhiteSpace(profile.UserName) ? UserName : profile.UserName;
+                    MembershipType = string.IsNullOrWhiteSpace(profile.MembershipType) ? MembershipType : profile.MembershipType;
+                    StatusMessage = $"已登录: {UserName}";
+
+                    RequestClose?.Invoke(this, new NexusLoginResult
+                    {
+                        ApiKey = ApiKey.Trim(),
+                        IsOAuthLogin = true,
+                        OAuthAccessToken = refresh.Token.AccessToken,
+                        OAuthRefreshToken = refresh.Token.RefreshToken,
+                        OAuthIdToken = refresh.Token.IdToken,
+                        UserName = UserName,
+                        MembershipType = MembershipType,
+                        UserId = profile.UserId > 0 ? profile.UserId : _existingUserId
+                    });
+                    return;
+                }
+            }
+
+            IsLoggedIn = false;
+            StatusMessage = "未登录";
+        }
+        catch
+        {
+            IsLoggedIn = false;
+            StatusMessage = "未登录";
+        }
     }
 
     [RelayCommand]
@@ -80,6 +188,9 @@ public partial class NexusLoginDialogViewModel : ObservableObject
         }
 
         StatusMessage = $"验证成功：{result.UserName} ({result.MembershipType})";
+        UserName = result.UserName;
+        MembershipType = result.MembershipType;
+        IsLoggedIn = true;
         IsBusy = false;
 
         RequestClose?.Invoke(this, new NexusLoginResult
@@ -97,8 +208,8 @@ public partial class NexusLoginDialogViewModel : ObservableObject
     {
         _oauthStart = _nexusOAuthService.CreateAuthorizationUrl();
         _lastOAuthAuthorizeUrl = _oauthStart.AuthorizeUrl;
-        OnPropertyChanged(nameof(CanRetryOpenAuthorizePage));
-        OnPropertyChanged(nameof(CanCopyAuthorizeUrl));
+        _sharedLastOAuthAuthorizeUrl = _lastOAuthAuthorizeUrl;
+        NotifyAuthorizeUrlChanged();
         OauthStatusMessage = "已打开授权页面，请完成授权后粘贴回调 URL 或 code";
 
         try
@@ -128,10 +239,25 @@ public partial class NexusLoginDialogViewModel : ObservableObject
 
         var tokenResult = await _nexusOAuthService.AuthorizeWithLoopbackAsync(url =>
         {
+            _lastOAuthAuthorizeUrl = url;
+            _sharedLastOAuthAuthorizeUrl = url;
+            global::Avalonia.Threading.Dispatcher.UIThread.Post(NotifyAuthorizeUrlChanged);
             Process.Start(new ProcessStartInfo
             {
                 FileName = url,
                 UseShellExecute = true
+            });
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(5000);
+                if (IsBusy && !string.IsNullOrWhiteSpace(_lastOAuthAuthorizeUrl))
+                {
+                    global::Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        OauthStatusMessage = "正在等待浏览器授权，如页面被关闭可点击“重开授权页”。";
+                    });
+                }
             });
         });
 
@@ -139,8 +265,7 @@ public partial class NexusLoginDialogViewModel : ObservableObject
         if (!tokenResult.IsSuccess || tokenResult.Token == null)
         {
             _lastOAuthAuthorizeUrl = tokenResult.AuthorizeUrl;
-            OnPropertyChanged(nameof(CanRetryOpenAuthorizePage));
-            OnPropertyChanged(nameof(CanCopyAuthorizeUrl));
+            NotifyAuthorizeUrlChanged();
 
             OauthStatusMessage = tokenResult.FailureReason switch
             {
@@ -155,6 +280,12 @@ public partial class NexusLoginDialogViewModel : ObservableObject
 
         var profile = tokenResult.Profile;
         OauthStatusMessage = $"OAuth 自动登录成功：{profile.UserName}";
+        UserName = profile.UserName;
+        MembershipType = profile.MembershipType;
+        IsLoggedIn = true;
+        _lastOAuthAuthorizeUrl = string.Empty;
+        _sharedLastOAuthAuthorizeUrl = string.Empty;
+        NotifyAuthorizeUrlChanged();
 
         RequestClose?.Invoke(this, new NexusLoginResult
         {
@@ -253,6 +384,12 @@ public partial class NexusLoginDialogViewModel : ObservableObject
 
         var profile = tokenResult.Profile;
         OauthStatusMessage = $"OAuth 登录成功：{profile.UserName}";
+        UserName = profile.UserName;
+        MembershipType = profile.MembershipType;
+        IsLoggedIn = true;
+        _lastOAuthAuthorizeUrl = string.Empty;
+        _sharedLastOAuthAuthorizeUrl = string.Empty;
+        NotifyAuthorizeUrlChanged();
 
         RequestClose?.Invoke(this, new NexusLoginResult
         {
@@ -272,6 +409,56 @@ public partial class NexusLoginDialogViewModel : ObservableObject
         RequestClose?.Invoke(this, null);
     }
 
+    [RelayCommand]
+    private Task LoginAsync()
+    {
+        return StartOAuthAutoLoginAsync();
+    }
+
+    [RelayCommand]
+    private void ReopenBrowserPage()
+    {
+        RetryOpenAuthorizePage();
+    }
+
+    [RelayCommand]
+    private void Close()
+    {
+        Cancel();
+    }
+
+    [RelayCommand]
+    private void Logout()
+    {
+        IsLoggedIn = false;
+        UserName = string.Empty;
+        MembershipType = string.Empty;
+        ApiKey = string.Empty;
+        OauthCallbackInput = string.Empty;
+        OauthStatusMessage = "已登出";
+        StatusMessage = "已登出";
+        _lastOAuthAuthorizeUrl = string.Empty;
+        _sharedLastOAuthAuthorizeUrl = string.Empty;
+        NotifyAuthorizeUrlChanged();
+
+        RequestClose?.Invoke(this, new NexusLoginResult
+        {
+            ApiKey = string.Empty,
+            IsOAuthLogin = false,
+            OAuthAccessToken = string.Empty,
+            OAuthRefreshToken = string.Empty,
+            OAuthIdToken = string.Empty,
+            UserName = string.Empty,
+            MembershipType = string.Empty,
+            UserId = 0
+        });
+    }
+
+    partial void OnIsLoggedInChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsNotLoggedIn));
+    }
+
     private static global::Avalonia.Input.Platform.IClipboard? GetClipboard()
     {
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -280,5 +467,29 @@ public partial class NexusLoginDialogViewModel : ObservableObject
         }
 
         return null;
+    }
+
+    private void NotifyAuthorizeUrlChanged()
+    {
+        OnPropertyChanged(nameof(CanRetryOpenAuthorizePage));
+        OnPropertyChanged(nameof(CanCopyAuthorizeUrl));
+        OnPropertyChanged(nameof(ShowReopenBrowserButton));
+        OnPropertyChanged(nameof(RollbackAuthorizeUrlPreview));
+    }
+
+    private static string BuildAuthorizeUrlPreview(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return string.Empty;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url.Length > 96 ? url[..96] + "..." : url;
+        }
+
+        var hostAndPath = uri.GetLeftPart(UriPartial.Path);
+        return hostAndPath.Length > 96 ? hostAndPath[..96] + "..." : hostAndPath;
     }
 }

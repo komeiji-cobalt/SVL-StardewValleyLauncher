@@ -9,11 +9,26 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SVL.Avalonia.ViewModels;
 
 public partial class DownloadPageViewModel : ObservableObject
 {
+    private const string SmapiDefaultName = "SMAPI - Stardew Modding API";
+    private const string SmapiDefaultSummary = "适用于星露谷物语的Mod加载器";
+    private const string DescriptionModeLocalized = "社区汉化";
+    private const string DescriptionModeSource = "源站英文";
+    private static readonly object IconHttpClientLock = new();
+    private static HttpClient? _smapiIconHttpClient;
+    private static string _smapiIconProxySignature = string.Empty;
+    private const int ModPageSize = 10;
+    private const int ModpackPageSize = 10;
+    private static readonly TimeSpan ModSearchCacheTtl = TimeSpan.FromMinutes(5);
+
     private readonly LocalizationService _localizationService;
     private readonly ImageResourceService _imageResourceService;
     private readonly INxmLinkParser _nxmLinkParser;
@@ -28,9 +43,18 @@ public partial class DownloadPageViewModel : ObservableObject
     private readonly DialogService _dialogService;
     private readonly string _downloadRootPath;
     private readonly string _taskStatePath;
+    private readonly string _smapiIconCachePath;
+    private readonly Dictionary<string, string> _smapiIconDiskCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DownloadTaskItem, CancellationTokenSource> _runningTaskCancellationSources = [];
     private readonly SemaphoreSlim _queueWorkerGate = new(1, 1);
     private bool _isQueueWorkerRunning;
+    private int _catalogLoadToken;
+    private bool _forceHotModsLoad;
+    private readonly List<string> _modAllResults = [];
+    private readonly List<string> _modpackAllResults = [];
+    private bool _modHasMore;
+    private bool _modpackHasMore;
+    private readonly Dictionary<string, (DateTime CreatedAt, List<string> Results)> _modResultsCache = new(StringComparer.Ordinal);
 
     public event Action<DownloadTaskItem>? TaskSelected;
 
@@ -65,6 +89,15 @@ public partial class DownloadPageViewModel : ObservableObject
 
     [ObservableProperty]
     private string _selectedModSource = "全部";
+
+    [ObservableProperty]
+    private string _selectedModGameVersion = "全部";
+
+    [ObservableProperty]
+    private string _selectedModType = "全部";
+
+    [ObservableProperty]
+    private string _selectedModDescriptionMode = DescriptionModeLocalized;
 
     [ObservableProperty]
     private string _modSearchText = string.Empty;
@@ -240,9 +273,39 @@ public partial class DownloadPageViewModel : ObservableObject
     [ObservableProperty]
     private string _categoryModpacksIconSource = "avares://SVL.Avalonia/Assets/Icons/icon.png";
 
-    public ObservableCollection<string> SmapiSources { get; } = ["全部", "Curseforge", "NexusMods"];
+    [ObservableProperty]
+    private string _modpackSearchText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isCatalogLoading;
+
+    [ObservableProperty]
+    private string _catalogListTitleText = "资源列表";
+
+    [ObservableProperty]
+    private string _catalogNoItemsText = "暂无资源，可尝试搜索关键词";
+
+    [ObservableProperty]
+    private int _currentModPage = 1;
+
+    [ObservableProperty]
+    private int _totalModPages = 1;
+
+    [ObservableProperty]
+    private int _currentModpackPage = 1;
+
+    [ObservableProperty]
+    private int _totalModpackPages = 1;
+
+    public ObservableCollection<string> SmapiSources { get; } = ["全部", "GitHub", "NexusMods", "Curseforge"];
 
     public ObservableCollection<string> ModSources { get; } = ["全部", "Curseforge", "NexusMods"];
+
+    public ObservableCollection<string> ModGameVersions { get; } = ["全部", "1.6", "1.5", "1.4"];
+
+    public ObservableCollection<string> ModTypes { get; } = ["全部", "功能扩展", "界面美化", "游戏内容", "工具类", "音效材质", "作弊类"];
+
+    public ObservableCollection<string> ModDescriptionModes { get; } = [DescriptionModeLocalized, DescriptionModeSource];
 
     public ObservableCollection<DownloadTaskItem> DownloadTasks { get; } = [];
 
@@ -252,11 +315,21 @@ public partial class DownloadPageViewModel : ObservableObject
 
     public ObservableCollection<string> SearchResults { get; } = [];
 
+    public ObservableCollection<DownloadCatalogItem> CategoryItems { get; } = [];
+
+    public ObservableCollection<DownloadCatalogItem> SmapiGithubItems { get; } = [];
+
+    public ObservableCollection<DownloadCatalogItem> SmapiNexusModsItems { get; } = [];
+
+    public ObservableCollection<DownloadCatalogItem> SmapiCurseforgeItems { get; } = [];
+
     public bool IsSmapiCategory => SelectedCategory == DownloadCategory.Smapi;
 
     public bool IsModsCategory => SelectedCategory == DownloadCategory.Mods;
 
     public bool IsModpacksCategory => SelectedCategory == DownloadCategory.Modpacks;
+
+    public bool IsNonSmapiCategory => !IsSmapiCategory;
 
     public bool HasActiveTasks => ActiveTasks.Count > 0;
 
@@ -265,6 +338,60 @@ public partial class DownloadPageViewModel : ObservableObject
     public bool HasNoActiveTasks => !HasActiveTasks;
 
     public bool HasNoFinishedTasks => !HasFinishedTasks;
+
+    public bool HasNoCategoryItems => !IsCatalogLoading && CategoryItems.Count == 0;
+
+    public bool HasCategoryItems => !HasNoCategoryItems;
+
+    public bool HasSmapiGithubItems => SmapiGithubItems.Count > 0;
+
+    public bool HasSmapiNexusModsItems => SmapiNexusModsItems.Count > 0;
+
+    public bool HasSmapiCurseforgeItems => SmapiCurseforgeItems.Count > 0;
+
+    public bool HasNoSmapiItems =>
+        !IsCatalogLoading &&
+        !HasSmapiGithubItems &&
+        !HasSmapiNexusModsItems &&
+        !HasSmapiCurseforgeItems;
+
+    public bool UseLocalizedModDescription =>
+        string.Equals(SelectedModDescriptionMode, DescriptionModeLocalized, StringComparison.Ordinal);
+
+    public bool IsModsPageable => IsModsCategory;
+
+    public bool CanGoToPreviousModPage => CurrentModPage > 1;
+
+    public bool CanGoToNextModPage => CurrentModPage < TotalModPages;
+
+    public string ModPageInfoText => $"第 {CurrentModPage}/{TotalModPages} 页";
+
+    public bool IsModpacksPageable => IsModpacksCategory;
+
+    public bool CanGoToPreviousModpackPage => CurrentModpackPage > 1;
+
+    public bool CanGoToNextModpackPage => CurrentModpackPage < TotalModpackPages;
+
+    public string ModpackPageInfoText => $"第 {CurrentModpackPage}/{TotalModpackPages} 页";
+
+    public string SelectedModSourceDescription => SelectedModSource switch
+    {
+        "NexusMods" => "来源：仅 NexusMods",
+        "Curseforge" => "来源：仅 Curseforge",
+        _ => "来源：全部（每个源最多展示 10 条）"
+    };
+
+    public string SelectedModGameVersionDescription => SelectedModGameVersion switch
+    {
+        "全部" => "版本：不过滤",
+        _ => $"版本：兼容 {SelectedModGameVersion}"
+    };
+
+    public string SelectedModTypeDescription => SelectedModType switch
+    {
+        "全部" => "类型：不过滤",
+        _ => $"类型：{SelectedModType}"
+    };
 
     public DownloadPageViewModel(
         LocalizationService localizationService,
@@ -290,6 +417,7 @@ public partial class DownloadPageViewModel : ObservableObject
         _nexusModDownloadResolverService = nexusModDownloadResolverService;
         _downloadInstallService = downloadInstallService;
         _remoteCatalogService = remoteCatalogService;
+        _remoteCatalogService.DebugLogger = message => EmitLog($"[Catalog] {message}");
         _taskStateStore = taskStateStore;
         _retryDiffReportService = retryDiffReportService;
         _localizationService.LanguageChanged += ApplyLocalizedTexts;
@@ -307,6 +435,11 @@ public partial class DownloadPageViewModel : ObservableObject
             "SVL",
             "Avalonia",
             "download-tasks-state.json");
+        _smapiIconCachePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SVL",
+            "Avalonia",
+            "smapi-icon-cache");
 
         DownloadTasks.CollectionChanged += (_, args) =>
         {
@@ -330,7 +463,18 @@ public partial class DownloadPageViewModel : ObservableObject
             RefreshTaskBuckets();
         };
 
+        CategoryItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasNoCategoryItems));
+            OnPropertyChanged(nameof(HasCategoryItems));
+        };
+
+        SmapiGithubItems.CollectionChanged += (_, _) => RaiseSmapiSourceState();
+        SmapiNexusModsItems.CollectionChanged += (_, _) => RaiseSmapiSourceState();
+        SmapiCurseforgeItems.CollectionChanged += (_, _) => RaiseSmapiSourceState();
+
         Directory.CreateDirectory(_downloadRootPath);
+        Directory.CreateDirectory(_smapiIconCachePath);
         TryLoadTaskState();
         RefreshGamePathState();
 
@@ -346,6 +490,8 @@ public partial class DownloadPageViewModel : ObservableObject
         {
             Status = "暂无下载任务，可通过搜索或链接导入添加";
         }
+
+        _ = LoadCategoryItemsForCurrentCategoryAsync(initialLoad: true);
     }
 
     private void ApplyImageResources()
@@ -487,9 +633,142 @@ public partial class DownloadPageViewModel : ObservableObject
             _ => "就绪"
         };
 
+        CatalogListTitleText = value switch
+        {
+            DownloadCategory.Smapi => "SMAPI 资源列表",
+            DownloadCategory.Mods => "Mod 资源列表",
+            DownloadCategory.Modpacks => "Modpack 资源列表",
+            _ => "资源列表"
+        };
+
+        _ = LoadCategoryItemsForCurrentCategoryAsync(initialLoad: true);
+
         OnPropertyChanged(nameof(IsSmapiCategory));
         OnPropertyChanged(nameof(IsModsCategory));
         OnPropertyChanged(nameof(IsModpacksCategory));
+        OnPropertyChanged(nameof(IsNonSmapiCategory));
+        OnPropertyChanged(nameof(IsModsPageable));
+        OnPropertyChanged(nameof(IsModpacksPageable));
+        OnPropertyChanged(nameof(CanGoToPreviousModPage));
+        OnPropertyChanged(nameof(CanGoToNextModPage));
+        OnPropertyChanged(nameof(CanGoToPreviousModpackPage));
+        OnPropertyChanged(nameof(CanGoToNextModpackPage));
+        OnPropertyChanged(nameof(ModPageInfoText));
+        OnPropertyChanged(nameof(ModpackPageInfoText));
+        RaiseSmapiSourceState();
+    }
+
+    partial void OnSelectedModDescriptionModeChanged(string value)
+    {
+        OnPropertyChanged(nameof(UseLocalizedModDescription));
+        ApplyModLocalizationPreferenceToCategoryItems();
+
+        if (IsModsCategory)
+        {
+            _ = LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+        }
+    }
+
+    partial void OnSelectedModSourceChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedModSourceDescription));
+    }
+
+    partial void OnSelectedModGameVersionChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedModGameVersionDescription));
+    }
+
+    partial void OnSelectedModTypeChanged(string value)
+    {
+        OnPropertyChanged(nameof(SelectedModTypeDescription));
+    }
+
+    partial void OnCurrentModPageChanged(int value)
+    {
+        OnPropertyChanged(nameof(CanGoToPreviousModPage));
+        OnPropertyChanged(nameof(CanGoToNextModPage));
+        OnPropertyChanged(nameof(ModPageInfoText));
+    }
+
+    partial void OnTotalModPagesChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsModsPageable));
+        OnPropertyChanged(nameof(CanGoToPreviousModPage));
+        OnPropertyChanged(nameof(CanGoToNextModPage));
+        OnPropertyChanged(nameof(ModPageInfoText));
+    }
+
+    partial void OnCurrentModpackPageChanged(int value)
+    {
+        OnPropertyChanged(nameof(CanGoToPreviousModpackPage));
+        OnPropertyChanged(nameof(CanGoToNextModpackPage));
+        OnPropertyChanged(nameof(ModpackPageInfoText));
+    }
+
+    partial void OnTotalModpackPagesChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsModpacksPageable));
+        OnPropertyChanged(nameof(CanGoToPreviousModpackPage));
+        OnPropertyChanged(nameof(CanGoToNextModpackPage));
+        OnPropertyChanged(nameof(ModpackPageInfoText));
+    }
+
+    [RelayCommand]
+    private void ShowLocalizedName(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.UseLocalizedName = true;
+    }
+
+    [RelayCommand]
+    private void ShowSourceName(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.UseLocalizedName = false;
+    }
+
+    [RelayCommand]
+    private void ShowLocalizedSummary(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.UseLocalizedSummary = true;
+    }
+
+    [RelayCommand]
+    private void ShowSourceSummary(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.UseLocalizedSummary = false;
+    }
+
+    [RelayCommand]
+    private void ToggleLocalizedDisplay(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var useLocalized = !(item.UseLocalizedName && item.UseLocalizedSummary);
+        item.UseLocalizedName = useLocalized;
+        item.UseLocalizedSummary = useLocalized;
     }
 
     [RelayCommand]
@@ -501,63 +780,173 @@ public partial class DownloadPageViewModel : ObservableObject
     [RelayCommand]
     private async Task SearchSmapi()
     {
-        SearchResults.Clear();
-
-        if (string.IsNullOrWhiteSpace(SmapiSearchText))
-        {
-            Status = "请输入关键词";
-            return;
-        }
-
-        try
-        {
-            Status = $"正在搜索 SMAPI: {SmapiSearchText}";
-            var source = string.Equals(SelectedSmapiSource, "GitHub", StringComparison.Ordinal)
-                ? "全部"
-                : SelectedSmapiSource;
-            var results = await _remoteCatalogService.SearchModsAsync($"SMAPI {SmapiSearchText}", source);
-            foreach (var item in results)
-            {
-                SearchResults.Add(item);
-            }
-
-            Status = SearchResults.Count == 0
-                ? "未找到匹配结果"
-                : $"已找到 {SearchResults.Count} 条结果";
-        }
-        catch (Exception ex)
-        {
-            Status = $"搜索失败: {ex.Message}";
-        }
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
     }
 
     [RelayCommand]
     private async Task SearchMods()
     {
-        SearchResults.Clear();
+        CurrentModPage = 1;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
 
-        if (string.IsNullOrWhiteSpace(ModSearchText))
+    [RelayCommand]
+    private async Task SearchModpacks()
+    {
+        CurrentModpackPage = 1;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task LoadHotModsAsync()
+    {
+        ModSearchText = string.Empty;
+        CurrentModPage = 1;
+        _forceHotModsLoad = true;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task ResetModFiltersAsync()
+    {
+        ModSearchText = string.Empty;
+        SelectedModSource = "全部";
+        SelectedModGameVersion = "全部";
+        SelectedModType = "全部";
+        SelectedModDescriptionMode = DescriptionModeLocalized;
+        CurrentModPage = 1;
+        _forceHotModsLoad = true;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task GoToPreviousModPage()
+    {
+        if (!CanGoToPreviousModPage)
         {
-            Status = "请输入 Mod 关键词";
             return;
         }
 
+        CurrentModPage--;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task GoToNextModPage()
+    {
+        if (!CanGoToNextModPage)
+        {
+            return;
+        }
+
+        CurrentModPage++;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task GoToPreviousModpackPage()
+    {
+        if (!CanGoToPreviousModpackPage)
+        {
+            return;
+        }
+
+        CurrentModpackPage--;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task GoToNextModpackPage()
+    {
+        if (!CanGoToNextModpackPage)
+        {
+            return;
+        }
+
+        CurrentModpackPage++;
+        await LoadCategoryItemsForCurrentCategoryAsync(initialLoad: false);
+    }
+
+    [RelayCommand]
+    private async Task OpenCatalogItemDetails(DownloadCatalogItem? item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.DisplayText))
+        {
+            return;
+        }
+
+        await PromoteCatalogItemIconToFullAsync(item);
+
+        OpenDetailsRequested?.Invoke(item.DisplayText);
+    }
+
+    private async Task PromoteCatalogItemIconToFullAsync(DownloadCatalogItem item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.FullIconSource))
+        {
+            return;
+        }
+
+        if (string.Equals(item.IconSource, item.FullIconSource, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        item.IconSource = item.FullIconSource;
+        await ResolveRemoteIconToLocalAsync(item, Volatile.Read(ref _catalogLoadToken), ResolveCategoryFallbackIcon(item.SourceKey));
+    }
+
+    [RelayCommand]
+    private void OpenSearchResultDetails(string? item)
+    {
+        if (string.IsNullOrWhiteSpace(item))
+        {
+            return;
+        }
+
+        OpenDetailsRequested?.Invoke(item);
+    }
+
+    [RelayCommand]
+    private async Task ToggleCatalogItemExpandedAsync(DownloadCatalogItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.IsExpanded = !item.IsExpanded;
+        if (!item.IsExpanded || item.HasLoadedDetails || item.IsLoadingDetails)
+        {
+            return;
+        }
+
+        item.IsLoadingDetails = true;
         try
         {
-            Status = $"正在搜索 Mod: {ModSearchText}";
-            var results = await _remoteCatalogService.SearchModsAsync(ModSearchText, SelectedModSource);
-            foreach (var item in results)
+            var details = await _remoteCatalogService.GetResourceDetailsAsync(item.DisplayText);
+            if (!string.IsNullOrWhiteSpace(details.Source))
             {
-                SearchResults.Add(item);
+                item.SourceTag = details.Source;
             }
 
-            Status = SearchResults.Count == 0
-                ? "未找到匹配结果"
-                : $"已找到 {SearchResults.Count} 条 Mod 结果";
+            if (!string.IsNullOrWhiteSpace(details.Summary))
+            {
+                item.Summary = details.Summary;
+            }
+
+            ReplaceStringCollection(item.VersionOptions, details.VersionOptions);
+            ReplaceStringCollection(item.DependencyOptions, details.Dependencies);
+            ReplaceStringCollection(item.DownloadOptions, details.DownloadOptions);
+            item.HasLoadedDetails = true;
         }
         catch (Exception ex)
         {
-            Status = $"搜索失败: {ex.Message}";
+            item.Summary = $"加载详情失败: {ex.Message}";
+        }
+        finally
+        {
+            item.IsLoadingDetails = false;
         }
     }
 
@@ -980,6 +1369,947 @@ public partial class DownloadPageViewModel : ObservableObject
         Status = $"已加入下载队列: {taskName}";
         SaveTaskState();
         _ = ProcessQueueAsync();
+    }
+
+    private async Task LoadCategoryItemsForCurrentCategoryAsync(bool initialLoad)
+    {
+        var loadToken = Interlocked.Increment(ref _catalogLoadToken);
+        var isHotModsLoad = false;
+        var isAutoHotCollectionsLoad = false;
+        IsCatalogLoading = true;
+        // Clear previous category list immediately to avoid stale list flash during category switch.
+        CategoryItems.Clear();
+        ClearSmapiSourceItems();
+        EmitLog($"[Catalog] Begin load token={loadToken}, category={SelectedCategory}, initialLoad={initialLoad}");
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+
+        try
+        {
+            List<string> results;
+            string queryHint;
+
+            switch (SelectedCategory)
+            {
+                case DownloadCategory.Smapi:
+                    queryHint = string.IsNullOrWhiteSpace(SmapiSearchText) ? "SMAPI" : $"SMAPI {SmapiSearchText.Trim()}";
+                    EmitLog($"[Catalog] SMAPI query='{queryHint}', source='{SelectedSmapiSource}'");
+                    results = await _remoteCatalogService.SearchSmapiAsync(queryHint, SelectedSmapiSource);
+                    break;
+
+                case DownloadCategory.Mods:
+                    isHotModsLoad = _forceHotModsLoad || initialLoad || string.IsNullOrWhiteSpace(ModSearchText);
+                    _forceHotModsLoad = false;
+                    queryHint = isHotModsLoad ? string.Empty : ModSearchText.Trim();
+                    var modSource = SelectedModSource;
+                    EmitLog($"[Catalog] MOD query='{queryHint}', hotOnly={isHotModsLoad}, source='{modSource}', version='{SelectedModGameVersion}', type='{SelectedModType}', mode='{SelectedModDescriptionMode}'");
+                    var paged = await _remoteCatalogService.SearchModsAdvancedPagedAsync(
+                        queryHint,
+                        modSource,
+                        SelectedModGameVersion,
+                        SelectedModType,
+                        UseLocalizedModDescription,
+                        isHotModsLoad,
+                        CurrentModPage,
+                        ModPageSize);
+                    _modHasMore = paged.HasMore;
+                    results = paged.Items;
+
+                    TotalModPages = _modHasMore ? CurrentModPage + 1 : CurrentModPage;
+                    break;
+
+                case DownloadCategory.Modpacks:
+                    isAutoHotCollectionsLoad = initialLoad && string.IsNullOrWhiteSpace(ModpackSearchText);
+                    queryHint = string.IsNullOrWhiteSpace(ModpackSearchText) ? string.Empty : ModpackSearchText.Trim();
+                    var modpackSource = isAutoHotCollectionsLoad ? "NexusMods" : "全部";
+                    EmitLog($"[Catalog] Modpack query='{queryHint}', source='{modpackSource}', autoHot={isAutoHotCollectionsLoad}");
+                    var modpackPaged = await _remoteCatalogService.SearchModpacksPagedAsync(queryHint, modpackSource, CurrentModpackPage, ModpackPageSize);
+                    _modpackHasMore = modpackPaged.HasMore;
+                    results = modpackPaged.Items;
+                    TotalModpackPages = _modpackHasMore ? CurrentModpackPage + 1 : CurrentModpackPage;
+                    break;
+
+                default:
+                    results = [];
+                    break;
+            }
+
+            if (loadToken != Volatile.Read(ref _catalogLoadToken))
+            {
+                EmitLog($"[Catalog] Skip outdated token={loadToken}");
+                return;
+            }
+
+            EmitLog($"[Catalog] Loaded raw results={results.Count}, category={SelectedCategory}");
+
+            ReplaceStringCollection(SearchResults, results);
+            if (SelectedCategory == DownloadCategory.Smapi)
+            {
+                CategoryItems.Clear();
+                SyncSmapiSourceItems(results);
+                _ = ResolveSmapiCardIconsAsync(loadToken);
+            }
+            else
+            {
+                ClearSmapiSourceItems();
+                if (SelectedCategory == DownloadCategory.Mods)
+                {
+                    SyncModCategoryItems(results);
+                }
+                else if (SelectedCategory == DownloadCategory.Modpacks)
+                {
+                    SyncModpackCategoryItems(results);
+                }
+                else
+                {
+                    SyncCategoryItems(results);
+                }
+                _ = ResolveCategoryCardIconsAsync(loadToken);
+            }
+
+            if (SelectedCategory == DownloadCategory.Smapi)
+            {
+                var cardCount = SmapiGithubItems.Count + SmapiNexusModsItems.Count + SmapiCurseforgeItems.Count;
+                Status = cardCount > 0
+                    ? $"已准备 {cardCount} 个来源卡片"
+                    : "SMAPI 来源卡片加载失败";
+            }
+            else if (SelectedCategory == DownloadCategory.Mods)
+            {
+                if (results.Count == 0)
+                {
+                    Status = isHotModsLoad ? "未获取到热门 Mod，请调整来源后重试" : "未找到匹配 Mod";
+                    EmitLog("[Catalog] Mod list is empty after search/filter.");
+                }
+                else
+                {
+                    Status = isHotModsLoad
+                        ? $"已加载 {results.Count} 条热门 Mod"
+                        : $"已筛选得到 {results.Count} 条 Mod";
+                    EmitLog($"[Catalog] Mod cards ready count={results.Count}");
+                }
+            }
+            else if (SelectedCategory == DownloadCategory.Modpacks)
+            {
+                if (results.Count == 0)
+                {
+                    Status = isAutoHotCollectionsLoad
+                        ? "未获取到 Nexus 热门 Collection，请稍后重试"
+                        : (initialLoad ? "已加载，暂无可展示资源" : "未找到匹配资源");
+                }
+                else
+                {
+                    Status = isAutoHotCollectionsLoad
+                        ? $"已加载 {results.Count} 条 Nexus 热门 Collection"
+                        : $"第 {CurrentModpackPage}/{TotalModpackPages} 页，共 {results.Count} 条资源";
+                }
+            }
+            else if (results.Count == 0)
+            {
+                Status = initialLoad ? "已加载，暂无可展示资源" : "未找到匹配资源";
+            }
+            else
+            {
+                Status = SelectedCategory == DownloadCategory.Modpacks
+                    ? $"第 {CurrentModpackPage}/{TotalModpackPages} 页，共 {results.Count} 条资源"
+                    : (initialLoad ? $"已加载 {results.Count} 条资源" : $"筛选得到 {results.Count} 条资源");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (loadToken != Volatile.Read(ref _catalogLoadToken))
+            {
+                return;
+            }
+
+            var message = ex.Message;
+            if (message.Contains("SSL", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("TLS", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("handshake", StringComparison.OrdinalIgnoreCase))
+            {
+                Status = "资源加载失败：SSL/TLS 连接异常。请到“设置 -> 下载设置”启用代理并填写代理地址后重试。";
+            }
+            else
+            {
+                Status = $"资源加载失败: {message}";
+            }
+            EmitLog($"[Catalog] Load failed token={loadToken}, error={ex.Message}");
+            CategoryItems.Clear();
+            SearchResults.Clear();
+            ClearSmapiSourceItems();
+        }
+        finally
+        {
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                IsCatalogLoading = false;
+                OnPropertyChanged(nameof(HasNoCategoryItems));
+                OnPropertyChanged(nameof(HasCategoryItems));
+                EmitLog($"[Catalog] End load token={loadToken}, hasItems={CategoryItems.Count > 0 || SmapiGithubItems.Count + SmapiNexusModsItems.Count + SmapiCurseforgeItems.Count > 0}");
+            }
+        }
+    }
+
+    private void SyncCategoryItems(IEnumerable<string> results)
+    {
+        CategoryItems.Clear();
+        foreach (var result in results)
+        {
+            var item = ParseCatalogItem(result);
+            if (SelectedCategory == DownloadCategory.Mods)
+            {
+                ApplyModLocalizationPreferenceToItem(item);
+            }
+
+            CategoryItems.Add(item);
+        }
+
+        ApplyModLocalizationPreferenceToCategoryItems();
+
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+    }
+
+    private void SyncModCategoryItems(IEnumerable<string> results)
+    {
+        CategoryItems.Clear();
+        foreach (var result in results)
+        {
+            var item = ParseCatalogItem(result);
+            ApplyModLocalizationPreferenceToItem(item);
+            CategoryItems.Add(item);
+        }
+
+        ApplyModLocalizationPreferenceToCategoryItems();
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+        OnPropertyChanged(nameof(ModPageInfoText));
+        OnPropertyChanged(nameof(IsModsPageable));
+    }
+
+    private void SyncModpackCategoryItems(IEnumerable<string> results)
+    {
+        CategoryItems.Clear();
+        foreach (var result in results)
+        {
+            CategoryItems.Add(ParseCatalogItem(result));
+        }
+
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+        OnPropertyChanged(nameof(ModpackPageInfoText));
+        OnPropertyChanged(nameof(IsModpacksPageable));
+    }
+
+    private void ApplyCurrentModPageItems()
+    {
+        CategoryItems.Clear();
+        if (_modAllResults.Count == 0)
+        {
+            return;
+        }
+
+        var skip = (CurrentModPage - 1) * ModPageSize;
+        var pageItems = _modAllResults.Skip(skip).Take(ModPageSize);
+        foreach (var result in pageItems)
+        {
+            var item = ParseCatalogItem(result);
+            ApplyModLocalizationPreferenceToItem(item);
+            CategoryItems.Add(item);
+        }
+
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+        OnPropertyChanged(nameof(ModPageInfoText));
+    }
+
+    private void ApplyCurrentModpackPageItems()
+    {
+        CategoryItems.Clear();
+        if (_modpackAllResults.Count == 0)
+        {
+            return;
+        }
+
+        var skip = (CurrentModpackPage - 1) * ModpackPageSize;
+        var pageItems = _modpackAllResults.Skip(skip).Take(ModpackPageSize);
+        foreach (var result in pageItems)
+        {
+            CategoryItems.Add(ParseCatalogItem(result));
+        }
+
+        OnPropertyChanged(nameof(HasNoCategoryItems));
+        OnPropertyChanged(nameof(HasCategoryItems));
+        OnPropertyChanged(nameof(ModpackPageInfoText));
+    }
+
+    private string BuildModCacheKey(string queryHint, bool isHotModsLoad)
+    {
+        return string.Join("|", [
+            "mods",
+            SelectedModSource,
+            SelectedModGameVersion,
+            SelectedModType,
+            SelectedModDescriptionMode,
+            isHotModsLoad ? "hot" : "search",
+            queryHint
+        ]);
+    }
+
+    private bool TryGetCachedModResults(string key, out List<string> results)
+    {
+        results = [];
+        if (!_modResultsCache.TryGetValue(key, out var entry))
+        {
+            return false;
+        }
+
+        if (DateTime.Now - entry.CreatedAt > ModSearchCacheTtl)
+        {
+            _modResultsCache.Remove(key);
+            return false;
+        }
+
+        results = [..entry.Results];
+        return true;
+    }
+
+    private void SetCachedModResults(string key, IEnumerable<string> results)
+    {
+        _modResultsCache[key] = (DateTime.Now, [..results]);
+    }
+
+    private void ApplyModLocalizationPreferenceToCategoryItems()
+    {
+        if (SelectedCategory != DownloadCategory.Mods)
+        {
+            return;
+        }
+
+        foreach (var item in CategoryItems)
+        {
+            ApplyModLocalizationPreferenceToItem(item);
+        }
+    }
+
+    private void ApplyModLocalizationPreferenceToItem(DownloadCatalogItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var useLocalized = UseLocalizedModDescription;
+        item.UseLocalizedText = useLocalized;
+        item.UseLocalizedName = useLocalized;
+        item.UseLocalizedSummary = useLocalized;
+    }
+
+    private void SyncSmapiSourceItems(IEnumerable<string> results)
+    {
+        ClearSmapiSourceItems();
+
+        var parsedItems = results
+            .Select(ParseCatalogItem)
+            .Where(item => !string.IsNullOrWhiteSpace(item.SourceKey))
+            .ToList();
+
+        var sourceKeys = GetRequestedSmapiSourceKeys();
+        foreach (var sourceKey in sourceKeys)
+        {
+            var bestItem = SelectBestSmapiSourceItem(parsedItems, sourceKey) ?? BuildSmapiPlaceholderItem(sourceKey);
+            bestItem = NormalizeSmapiCardPresentation(bestItem, sourceKey);
+            switch (sourceKey)
+            {
+                case "github":
+                    SmapiGithubItems.Add(bestItem);
+                    break;
+                case "nexusmods":
+                    SmapiNexusModsItems.Add(bestItem);
+                    break;
+                case "curseforge":
+                    SmapiCurseforgeItems.Add(bestItem);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        RaiseSmapiSourceState();
+    }
+
+    private List<string> GetRequestedSmapiSourceKeys()
+    {
+        return SelectedSmapiSource switch
+        {
+            "GitHub" => ["github"],
+            "NexusMods" => ["nexusmods"],
+            "Curseforge" => ["curseforge"],
+            _ => ["github", "nexusmods", "curseforge"]
+        };
+    }
+
+    private static DownloadCatalogItem? SelectBestSmapiSourceItem(IEnumerable<DownloadCatalogItem> items, string sourceKey)
+    {
+        return items
+            .Where(item => string.Equals(item.SourceKey, sourceKey, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => ComputeSmapiItemScore(item))
+            .FirstOrDefault();
+    }
+
+    private static int ComputeSmapiItemScore(DownloadCatalogItem item)
+    {
+        var score = 0;
+        if (!string.IsNullOrWhiteSpace(item.Name) &&
+            item.Name.Contains("smapi", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 10;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Summary) &&
+            item.Summary.Contains("smapi", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 6;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Stat))
+        {
+            score += 2;
+        }
+
+        return score;
+    }
+
+    private static DownloadCatalogItem BuildSmapiPlaceholderItem(string sourceKey)
+    {
+        var sourceLabel = ResolveSourceLabel(sourceKey, sourceKey);
+        var sourceId = sourceKey switch
+        {
+            "nexusmods" => "2400",
+            "curseforge" => "898372",
+            _ => "0"
+        };
+
+        var displayText = $"[{sourceLabel}#{sourceId}] {SmapiDefaultName} | metric= | time= | icon=avares://SVL.Avalonia/Assets/Icons/Modded.png | {SmapiDefaultSummary}";
+        return new DownloadCatalogItem
+        {
+            DisplayText = displayText,
+            Name = SmapiDefaultName,
+            SourceTag = sourceLabel,
+            SourceKey = sourceKey,
+            Stat = string.Empty,
+            MetricTag = string.Empty,
+            TimeTag = string.Empty,
+            Summary = SmapiDefaultSummary,
+            IconSource = "avares://SVL.Avalonia/Assets/Icons/Modded.png"
+        };
+    }
+
+    private static DownloadCatalogItem NormalizeSmapiCardPresentation(DownloadCatalogItem item, string sourceKey)
+    {
+        item.SourceKey = sourceKey;
+        item.SourceTag = ResolveSourceLabel(sourceKey, item.SourceTag);
+        item.Name = SmapiDefaultName;
+        item.Summary = SmapiDefaultSummary;
+        if (string.IsNullOrWhiteSpace(item.MetricTag) && !string.IsNullOrWhiteSpace(item.Stat))
+        {
+            item.MetricTag = item.Stat;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.IconSource))
+        {
+            item.IconSource = ResolveSmapiIconSource(sourceKey);
+        }
+
+        return item;
+    }
+
+    private HttpClient GetIconHttpClient()
+    {
+        var settings = _settingsStore.Load();
+        var signature = BuildIconProxySignature(settings);
+
+        lock (IconHttpClientLock)
+        {
+            if (_smapiIconHttpClient != null && string.Equals(signature, _smapiIconProxySignature, StringComparison.Ordinal))
+            {
+                return _smapiIconHttpClient;
+            }
+
+            _smapiIconHttpClient?.Dispose();
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+            };
+
+            if (settings.EnableDownloadProxy &&
+                TryResolveIconProxyUri(settings.DownloadProxyUrl, out var proxyUri))
+            {
+                var proxy = new WebProxy(proxyUri);
+                if (!string.IsNullOrWhiteSpace(settings.DownloadProxyUserName))
+                {
+                    proxy.Credentials = new NetworkCredential(
+                        settings.DownloadProxyUserName.Trim(),
+                        settings.DownloadProxyPassword ?? string.Empty);
+                }
+
+                handler.UseProxy = true;
+                handler.Proxy = proxy;
+            }
+
+            _smapiIconHttpClient = new HttpClient(handler, disposeHandler: true);
+            _smapiIconHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("SVL-Avalonia-IconFetcher");
+            _smapiIconProxySignature = signature;
+            return _smapiIconHttpClient;
+        }
+    }
+
+    private static string BuildIconProxySignature(AppUserSettings settings)
+    {
+        if (!settings.EnableDownloadProxy)
+        {
+            return "disabled";
+        }
+
+        return string.Join('|',
+            "enabled",
+            settings.DownloadProxyUrl?.Trim() ?? string.Empty,
+            settings.DownloadProxyUserName?.Trim() ?? string.Empty,
+            string.IsNullOrWhiteSpace(settings.DownloadProxyUserName)
+                ? "anonymous"
+                : (string.IsNullOrEmpty(settings.DownloadProxyPassword) ? "user-np" : "user-p"));
+    }
+
+    private static bool TryResolveIconProxyUri(string? rawProxyUrl, out Uri proxyUri)
+    {
+        proxyUri = default!;
+        if (string.IsNullOrWhiteSpace(rawProxyUrl))
+        {
+            return false;
+        }
+
+        var trimmed = rawProxyUrl.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var parsedProxyUri) && parsedProxyUri != null)
+        {
+            proxyUri = parsedProxyUri;
+            return true;
+        }
+
+        if (!trimmed.Contains("://", StringComparison.Ordinal) &&
+            Uri.TryCreate($"http://{trimmed}", UriKind.Absolute, out parsedProxyUri) &&
+            parsedProxyUri != null)
+        {
+            proxyUri = parsedProxyUri;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string ResolveSmapiIconSource(string sourceKey)
+    {
+        return sourceKey switch
+        {
+            "github" => "avares://SVL.Avalonia/Assets/Icons/Modded.png",
+            "nexusmods" => "avares://SVL.Avalonia/Assets/Icons/Junimo.png",
+            "curseforge" => "avares://SVL.Avalonia/Assets/Icons/Junimo.png",
+            _ => "avares://SVL.Avalonia/Assets/Icons/Modded.png"
+        };
+    }
+
+    private async Task ResolveSmapiCardIconsAsync(int loadToken)
+    {
+        var items = SmapiGithubItems
+            .Concat(SmapiNexusModsItems)
+            .Concat(SmapiCurseforgeItems)
+            .ToList();
+
+        foreach (var item in items)
+        {
+            await ResolveSmapiCardIconAsync(item, loadToken);
+        }
+    }
+
+    private async Task ResolveSmapiCardIconAsync(DownloadCatalogItem item, int loadToken)
+    {
+        if (item == null || loadToken != Volatile.Read(ref _catalogLoadToken))
+        {
+            return;
+        }
+
+        var iconSource = item.IconSource?.Trim() ?? string.Empty;
+        if (!Uri.TryCreate(iconSource, UriKind.Absolute, out var iconUri) ||
+            (iconUri.Scheme != Uri.UriSchemeHttp && iconUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return;
+        }
+
+        var remoteUrl = iconUri.ToString();
+        var fallback = ResolveSmapiIconSource(item.SourceKey);
+        item.IconSource = fallback;
+
+        if (_smapiIconDiskCache.TryGetValue(remoteUrl, out var cachedPath) && File.Exists(cachedPath))
+        {
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = cachedPath;
+            }
+
+            return;
+        }
+
+        var iconPath = BuildSmapiIconCachePath(remoteUrl, iconUri);
+        if (File.Exists(iconPath))
+        {
+            _smapiIconDiskCache[remoteUrl] = iconPath;
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = iconPath;
+            }
+
+            return;
+        }
+
+        try
+        {
+            using var response = await GetIconHttpClient().GetAsync(iconUri, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            if (bytes.Length == 0)
+            {
+                return;
+            }
+
+            await File.WriteAllBytesAsync(iconPath, bytes);
+            _smapiIconDiskCache[remoteUrl] = iconPath;
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = iconPath;
+            }
+        }
+        catch
+        {
+            // Keep fallback icon when remote icon download fails.
+        }
+    }
+
+    private async Task ResolveCategoryCardIconsAsync(int loadToken)
+    {
+        var items = CategoryItems.ToList();
+        foreach (var item in items)
+        {
+            await ResolveRemoteIconToLocalAsync(item, loadToken, ResolveCategoryFallbackIcon(item.SourceKey));
+        }
+    }
+
+    private static string ResolveCategoryFallbackIcon(string sourceKey)
+    {
+        return sourceKey switch
+        {
+            "curseforge" => "avares://SVL.Avalonia/Assets/Icons/Junimo.png",
+            "nexusmods" => "avares://SVL.Avalonia/Assets/Icons/Junimo.png",
+            _ => "avares://SVL.Avalonia/Assets/Icons/Modded.png"
+        };
+    }
+
+    private async Task ResolveRemoteIconToLocalAsync(DownloadCatalogItem item, int loadToken, string fallback)
+    {
+        if (item == null || loadToken != Volatile.Read(ref _catalogLoadToken))
+        {
+            return;
+        }
+
+        var iconSource = item.IconSource?.Trim() ?? string.Empty;
+        if (!Uri.TryCreate(iconSource, UriKind.Absolute, out var iconUri) ||
+            (iconUri.Scheme != Uri.UriSchemeHttp && iconUri.Scheme != Uri.UriSchemeHttps))
+        {
+            if (string.IsNullOrWhiteSpace(item.IconSource))
+            {
+                item.IconSource = fallback;
+            }
+
+            return;
+        }
+
+        var remoteUrl = iconUri.ToString();
+        item.IconSource = fallback;
+
+        if (_smapiIconDiskCache.TryGetValue(remoteUrl, out var cachedPath) && File.Exists(cachedPath))
+        {
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = cachedPath;
+            }
+
+            return;
+        }
+
+        var iconPath = BuildSmapiIconCachePath(remoteUrl, iconUri);
+        if (File.Exists(iconPath))
+        {
+            _smapiIconDiskCache[remoteUrl] = iconPath;
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = iconPath;
+            }
+
+            return;
+        }
+
+        try
+        {
+            using var response = await GetIconHttpClient().GetAsync(iconUri, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            if (bytes.Length == 0)
+            {
+                return;
+            }
+
+            await File.WriteAllBytesAsync(iconPath, bytes);
+            _smapiIconDiskCache[remoteUrl] = iconPath;
+            if (loadToken == Volatile.Read(ref _catalogLoadToken))
+            {
+                item.IconSource = iconPath;
+            }
+        }
+        catch
+        {
+            // Keep fallback icon when remote icon download fails.
+        }
+    }
+
+    private string BuildSmapiIconCachePath(string remoteUrl, Uri iconUri)
+    {
+        using var sha256 = SHA256.Create();
+        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(remoteUrl));
+        var hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+        var extension = Path.GetExtension(iconUri.AbsolutePath);
+        if (string.IsNullOrWhiteSpace(extension) || extension.Length > 8)
+        {
+            extension = ".img";
+        }
+
+        return Path.Combine(_smapiIconCachePath, hash + extension);
+    }
+
+    private void ClearSmapiSourceItems()
+    {
+        SmapiGithubItems.Clear();
+        SmapiNexusModsItems.Clear();
+        SmapiCurseforgeItems.Clear();
+        RaiseSmapiSourceState();
+    }
+
+    private void RaiseSmapiSourceState()
+    {
+        OnPropertyChanged(nameof(HasSmapiGithubItems));
+        OnPropertyChanged(nameof(HasSmapiNexusModsItems));
+        OnPropertyChanged(nameof(HasSmapiCurseforgeItems));
+        OnPropertyChanged(nameof(HasNoSmapiItems));
+    }
+
+    private static DownloadCatalogItem ParseCatalogItem(string result)
+    {
+        var parts = result.Split('|', StringSplitOptions.TrimEntries);
+        var header = parts.Length > 0 ? parts[0] : result;
+        var stat = string.Empty;
+        var metricTag = string.Empty;
+        var timeTag = string.Empty;
+        var iconSource = string.Empty;
+        var fullIconSource = string.Empty;
+        var summary = string.Empty;
+        var sourceName = string.Empty;
+        var sourceSummary = string.Empty;
+        var localizedName = string.Empty;
+        var localizedSummary = string.Empty;
+        var modTypeTag = string.Empty;
+        var gameVersionTag = string.Empty;
+
+        for (var index = 1; index < parts.Length; index++)
+        {
+            var segment = parts[index].Trim();
+            if (string.IsNullOrWhiteSpace(segment))
+            {
+                continue;
+            }
+
+            if (segment.StartsWith("metric=", StringComparison.OrdinalIgnoreCase))
+            {
+                metricTag = segment[7..].Trim();
+                if (string.IsNullOrWhiteSpace(stat))
+                {
+                    stat = metricTag;
+                }
+
+                continue;
+            }
+
+            if (segment.StartsWith("time=", StringComparison.OrdinalIgnoreCase))
+            {
+                timeTag = segment[5..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("icon=", StringComparison.OrdinalIgnoreCase))
+            {
+                iconSource = segment[5..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("fullIcon=", StringComparison.OrdinalIgnoreCase))
+            {
+                fullIconSource = segment[9..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("type=", StringComparison.OrdinalIgnoreCase))
+            {
+                modTypeTag = segment[5..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("compat=", StringComparison.OrdinalIgnoreCase))
+            {
+                gameVersionTag = segment[7..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("srcName=", StringComparison.OrdinalIgnoreCase))
+            {
+                sourceName = segment[8..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("srcSummary=", StringComparison.OrdinalIgnoreCase))
+            {
+                sourceSummary = segment[11..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("zhName=", StringComparison.OrdinalIgnoreCase))
+            {
+                localizedName = segment[7..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("zhSummary=", StringComparison.OrdinalIgnoreCase))
+            {
+                localizedSummary = segment[10..].Trim();
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(stat))
+            {
+                stat = segment;
+                metricTag = segment;
+            }
+            else if (string.IsNullOrWhiteSpace(summary))
+            {
+                summary = segment;
+            }
+            else
+            {
+                summary = string.Concat(summary, " | ", segment);
+            }
+        }
+
+        var sourceTag = string.Empty;
+        var name = header;
+
+        if (header.StartsWith("[", StringComparison.Ordinal))
+        {
+            var index = header.IndexOf(']');
+            if (index > 1)
+            {
+                sourceTag = header[1..index].Trim();
+                name = header[(index + 1)..].Trim();
+            }
+        }
+
+        var sourceHead = sourceTag;
+        var sourceSplitIndex = sourceTag.IndexOf('#');
+        if (sourceSplitIndex > 0)
+        {
+            sourceHead = sourceTag[..sourceSplitIndex];
+        }
+
+        var sourceKey = ResolveSourceKey(sourceHead);
+        var sourceLabel = ResolveSourceLabel(sourceKey, sourceHead);
+
+        return new DownloadCatalogItem
+        {
+            DisplayText = result,
+            Name = string.IsNullOrWhiteSpace(name) ? result : name,
+            SourceTag = sourceLabel,
+            SourceKey = sourceKey,
+            Stat = stat,
+            MetricTag = metricTag,
+            TimeTag = timeTag,
+            IconSource = iconSource,
+            FullIconSource = fullIconSource,
+            Summary = string.IsNullOrWhiteSpace(sourceSummary) ? summary : sourceSummary,
+            SourceName = string.IsNullOrWhiteSpace(sourceName) ? name : sourceName,
+            SourceSummary = string.IsNullOrWhiteSpace(sourceSummary) ? summary : sourceSummary,
+            LocalizedName = localizedName,
+            LocalizedSummary = localizedSummary,
+            ModTypeTag = modTypeTag,
+            GameVersionTag = gameVersionTag
+        };
+    }
+
+    private static string ResolveSourceKey(string sourceText)
+    {
+        if (sourceText.Contains("github", StringComparison.OrdinalIgnoreCase))
+        {
+            return "github";
+        }
+
+        if (sourceText.Contains("nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            return "nexusmods";
+        }
+
+        if (sourceText.Contains("curse", StringComparison.OrdinalIgnoreCase))
+        {
+            return "curseforge";
+        }
+
+        return "unknown";
+    }
+
+    private static string ResolveSourceLabel(string sourceKey, string fallback)
+    {
+        return sourceKey switch
+        {
+            "github" => "GitHub",
+            "nexusmods" => "NexusMods",
+            "curseforge" => "Curseforge",
+            _ => string.IsNullOrWhiteSpace(fallback) ? "未知来源" : fallback
+        };
+    }
+
+    private static void ReplaceStringCollection(ObservableCollection<string> target, IEnumerable<string> source)
+    {
+        target.Clear();
+        foreach (var item in source)
+        {
+            if (string.IsNullOrWhiteSpace(item))
+            {
+                continue;
+            }
+
+            target.Add(item.Trim());
+        }
     }
 
     private async Task ProcessQueueAsync()
@@ -1829,8 +3159,22 @@ public partial class DownloadPageViewModel : ObservableObject
                 return;
             }
 
+            var filteredRecords = records
+                .Where(record => !IsSmokeTestTaskRecord(record))
+                .ToList();
+
+            if (filteredRecords.Count != records.Count)
+            {
+                EmitLog($"已过滤 {records.Count - filteredRecords.Count} 条测试任务记录");
+            }
+
+            if (filteredRecords.Count == 0)
+            {
+                return;
+            }
+
             DownloadTasks.Clear();
-            foreach (var record in records)
+            foreach (var record in filteredRecords)
             {
                 DownloadTasks.Add(new DownloadTaskItem
                 {
@@ -1861,6 +3205,23 @@ public partial class DownloadPageViewModel : ObservableObject
         {
             // Ignore broken persisted state and keep in-memory defaults.
         }
+    }
+
+    private static bool IsSmokeTestTaskRecord(DownloadTaskStateRecord record)
+    {
+        if (record == null)
+        {
+            return false;
+        }
+
+        var hasSmokeName = !string.IsNullOrWhiteSpace(record.Name) &&
+                           record.Name.Contains("smoke", StringComparison.OrdinalIgnoreCase);
+        var hasSmokeSource = !string.IsNullOrWhiteSpace(record.SourceUrl) &&
+                             record.SourceUrl.Contains("smoke", StringComparison.OrdinalIgnoreCase);
+        var hasSmokeOutputPath = !string.IsNullOrWhiteSpace(record.OutputFilePath) &&
+                                 record.OutputFilePath.Contains("svl-smoke-instance", StringComparison.OrdinalIgnoreCase);
+
+        return hasSmokeName || hasSmokeSource || hasSmokeOutputPath;
     }
 
     private static void NormalizeRecoveredTaskState(DownloadTaskItem task)

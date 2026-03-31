@@ -1,16 +1,23 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using Microsoft.Win32;
 using SVL.Avalonia.Models;
 using SVL.Core.Platform.Abstractions;
 using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Text;
 
@@ -39,6 +46,15 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
     public ObservableCollection<string> RetryReportHistory { get; } = [];
 
     public bool CanRetryFailedItems { get; private set; }
+
+    [ObservableProperty]
+    private int _activeTasksCount;
+
+    [ObservableProperty]
+    private int _finishedTasksCount;
+
+    [ObservableProperty]
+    private string _selectedTaskHint = "未选择任务";
 
     public event Action? RetryFailedItemsRequested;
 
@@ -72,10 +88,10 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
             return;
         }
 
-        TaskLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] {message}");
+        TaskLogs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
         while (TaskLogs.Count > 200)
         {
-            TaskLogs.RemoveAt(TaskLogs.Count - 1);
+            TaskLogs.RemoveAt(0);
         }
     }
 
@@ -105,6 +121,13 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
         {
             ConflictPreviewItems.Add(item);
         }
+    }
+
+    public void UpdateTaskOverview(int activeCount, int finishedCount, string selectedHint)
+    {
+        ActiveTasksCount = Math.Max(0, activeCount);
+        FinishedTasksCount = Math.Max(0, finishedCount);
+        SelectedTaskHint = string.IsNullOrWhiteSpace(selectedHint) ? "未选择任务" : selectedHint;
     }
 
     [RelayCommand]
@@ -271,6 +294,8 @@ public sealed partial class ModpackSearchPageViewModel : FeaturePageViewModelBas
 public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 {
     private readonly Services.RemoteCatalogService _catalogService;
+    private string _lastDisplayText = string.Empty;
+    private const string LocalizationContributionUrl = "https://svl.qzz.io/contribute";
 
     public override string Title => "资源详情";
     public override string Description => "对应 WPF ModDetailsView，展示资源信息、版本与下载动作。";
@@ -285,45 +310,172 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
     public string DetailsStatus { get; private set; } = "等待加载";
 
+    public string ResourceMetricTag { get; private set; } = string.Empty;
+
+    public string ResourceTimeTag { get; private set; } = string.Empty;
+
+    public string SourceResourceName { get; private set; } = string.Empty;
+
+    public string LocalizedResourceName { get; private set; } = string.Empty;
+
+    public string SourceResourceSummary { get; private set; } = string.Empty;
+
+    public string LocalizedResourceSummary { get; private set; } = string.Empty;
+
+    public string SourcePageUrl { get; private set; } = string.Empty;
+
+    public string ResourceIdText { get; private set; } = "-";
+
+    public bool IsCollectionDetails { get; private set; }
+
+    [ObservableProperty]
+    private bool _useLocalizedName = true;
+
+    [ObservableProperty]
+    private bool _useLocalizedSummary = true;
+
     public ObservableCollection<string> VersionOptions { get; } = [];
 
     public ObservableCollection<string> DependencyItems { get; } = [];
 
     public ObservableCollection<string> DownloadOptions { get; } = [];
 
-    public string SelectedDownloadOption { get; set; } = string.Empty;
+    public ObservableCollection<string> RequiredDependencyItems { get; } = [];
+
+    public ObservableCollection<string> HardConflictDependencyItems { get; } = [];
+
+    public ObservableCollection<string> FunctionalOverlapDependencyItems { get; } = [];
+
+    [ObservableProperty]
+    private string _selectedDownloadOption = string.Empty;
+
+    public bool HasLocalizedResourceName => !string.IsNullOrWhiteSpace(LocalizedResourceName);
+
+    public bool HasLocalizedResourceSummary => !string.IsNullOrWhiteSpace(LocalizedResourceSummary);
+
+    public bool HasSourcePageUrl => !string.IsNullOrWhiteSpace(SourcePageUrl);
+
+    public bool HasResourceMetricTag => !string.IsNullOrWhiteSpace(ResourceMetricTag);
+
+    public bool HasResourceTimeTag => !string.IsNullOrWhiteSpace(ResourceTimeTag);
+
+    public bool HasVersionOptions => VersionOptions.Count > 0;
+
+    public bool HasNoVersionOptions => !HasVersionOptions;
+
+    public bool HasDependencyItems => DependencyItems.Count > 0;
+
+    public bool HasNoDependencyItems => !HasDependencyItems;
+
+    public bool HasRequiredDependencyItems => RequiredDependencyItems.Count > 0;
+
+    public bool HasHardConflictDependencyItems => HardConflictDependencyItems.Count > 0;
+
+    public bool HasFunctionalOverlapDependencyItems => FunctionalOverlapDependencyItems.Count > 0;
+
+    public bool HasDownloadOptions => DownloadOptions.Count > 0;
+
+    public bool CanQueueDownload => !string.IsNullOrWhiteSpace(SelectedDownloadOption);
+
+    public string CopyIdButtonText => IsCollectionDetails ? "尾链" : "ID";
+
+    public string DisplayResourceName =>
+        UseLocalizedName && !string.IsNullOrWhiteSpace(LocalizedResourceName)
+            ? LocalizedResourceName
+            : (string.IsNullOrWhiteSpace(SourceResourceName) ? ResourceName : SourceResourceName);
+
+    public string DisplayResourceSummary =>
+        UseLocalizedSummary && !string.IsNullOrWhiteSpace(LocalizedResourceSummary)
+            ? LocalizedResourceSummary
+            : (string.IsNullOrWhiteSpace(SourceResourceSummary) ? ResourceNotes : SourceResourceSummary);
 
     public ModDetailsPageViewModel(Services.RemoteCatalogService catalogService)
     {
         _catalogService = catalogService;
+
+        VersionOptions.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasVersionOptions));
+            OnPropertyChanged(nameof(HasNoVersionOptions));
+        };
+        DependencyItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasDependencyItems));
+            OnPropertyChanged(nameof(HasNoDependencyItems));
+        };
+        RequiredDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRequiredDependencyItems));
+        HardConflictDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHardConflictDependencyItems));
+        FunctionalOverlapDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasFunctionalOverlapDependencyItems));
+        DownloadOptions.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasDownloadOptions));
+            OnPropertyChanged(nameof(CanQueueDownload));
+        };
     }
 
     public void SetResource(string name, string notes)
     {
-        ResourceName = string.IsNullOrWhiteSpace(name) ? "未选择资源" : name;
-        ResourceNotes = string.IsNullOrWhiteSpace(notes) ? "-" : notes;
-        ResourceSource = "-";
+        _lastDisplayText = string.IsNullOrWhiteSpace(name) ? string.Empty : name;
+        var parsed = ParseDisplayText(_lastDisplayText);
+
+        ResourceName = string.IsNullOrWhiteSpace(parsed.SourceName) ? (string.IsNullOrWhiteSpace(name) ? "未选择资源" : name) : parsed.SourceName;
+        SourceResourceName = string.IsNullOrWhiteSpace(parsed.SourceName) ? ResourceName : parsed.SourceName;
+        LocalizedResourceName = parsed.LocalizedName;
+        ResourceMetricTag = parsed.MetricTag;
+        ResourceTimeTag = parsed.TimeTag;
+        ResourceSource = string.IsNullOrWhiteSpace(parsed.SourceLabel) ? "-" : parsed.SourceLabel;
+        ResourceIdText = string.IsNullOrWhiteSpace(parsed.ResourceId) ? "-" : parsed.ResourceId;
+        IsCollectionDetails = parsed.IsCollection;
+        SourcePageUrl = BuildSourcePageUrl(parsed);
+
+        var fallbackSummary = string.IsNullOrWhiteSpace(notes) ? "-" : notes;
+        ResourceNotes = string.IsNullOrWhiteSpace(parsed.SourceSummary) ? fallbackSummary : parsed.SourceSummary;
+        SourceResourceSummary = string.IsNullOrWhiteSpace(parsed.SourceSummary) ? ResourceNotes : parsed.SourceSummary;
+        LocalizedResourceSummary = parsed.LocalizedSummary;
+
+        UseLocalizedName = true;
+        UseLocalizedSummary = true;
         DetailsStatus = "待加载详情";
+
         VersionOptions.Clear();
         DependencyItems.Clear();
+        RequiredDependencyItems.Clear();
+        HardConflictDependencyItems.Clear();
+        FunctionalOverlapDependencyItems.Clear();
         DownloadOptions.Clear();
         SelectedDownloadOption = string.Empty;
-        OnPropertyChanged(nameof(ResourceName));
-        OnPropertyChanged(nameof(ResourceNotes));
-        OnPropertyChanged(nameof(ResourceSource));
-        OnPropertyChanged(nameof(DetailsStatus));
-        OnPropertyChanged(nameof(SelectedDownloadOption));
+
+        RaiseResourceHeaderState();
     }
 
     public async Task LoadDetailsAsync(string displayText)
     {
+        _lastDisplayText = string.IsNullOrWhiteSpace(displayText) ? _lastDisplayText : displayText;
+        var parsed = ParseDisplayText(_lastDisplayText);
+
         DetailsStatus = "正在加载详情...";
         OnPropertyChanged(nameof(DetailsStatus));
 
         var details = await _catalogService.GetResourceDetailsAsync(displayText);
-        ResourceName = string.IsNullOrWhiteSpace(details.Name) ? displayText : details.Name;
+
+        ResourceName = string.IsNullOrWhiteSpace(details.Name)
+            ? (string.IsNullOrWhiteSpace(parsed.SourceName) ? displayText : parsed.SourceName)
+            : details.Name;
+        SourceResourceName = string.IsNullOrWhiteSpace(parsed.SourceName) ? ResourceName : parsed.SourceName;
+        LocalizedResourceName = parsed.LocalizedName;
+
         ResourceSource = string.IsNullOrWhiteSpace(details.Source) ? "-" : details.Source;
-        ResourceNotes = string.IsNullOrWhiteSpace(details.Summary) ? "-" : details.Summary;
+        ResourceMetricTag = parsed.MetricTag;
+        ResourceTimeTag = parsed.TimeTag;
+        ResourceIdText = string.IsNullOrWhiteSpace(parsed.ResourceId) ? ResourceIdText : parsed.ResourceId;
+        IsCollectionDetails = parsed.IsCollection;
+        SourcePageUrl = BuildSourcePageUrl(parsed);
+
+        ResourceNotes = string.IsNullOrWhiteSpace(details.Summary)
+            ? (string.IsNullOrWhiteSpace(parsed.SourceSummary) ? "-" : parsed.SourceSummary)
+            : details.Summary;
+        SourceResourceSummary = string.IsNullOrWhiteSpace(parsed.SourceSummary) ? ResourceNotes : parsed.SourceSummary;
+        LocalizedResourceSummary = parsed.LocalizedSummary;
 
         VersionOptions.Clear();
         foreach (var item in details.VersionOptions.Take(12))
@@ -336,6 +488,7 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         {
             DependencyItems.Add(item);
         }
+        ClassifyDependencyGroups();
 
         DownloadOptions.Clear();
         foreach (var item in details.DownloadOptions.Take(20))
@@ -345,30 +498,441 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
         SelectedDownloadOption = DownloadOptions.FirstOrDefault() ?? string.Empty;
         DetailsStatus = "详情已加载";
-        OnPropertyChanged(nameof(ResourceName));
-        OnPropertyChanged(nameof(ResourceSource));
-        OnPropertyChanged(nameof(ResourceNotes));
-        OnPropertyChanged(nameof(SelectedDownloadOption));
+
+        RaiseResourceHeaderState();
+    }
+
+    [RelayCommand]
+    private void ShowLocalizedName()
+    {
+        if (!HasLocalizedResourceName)
+        {
+            return;
+        }
+
+        UseLocalizedName = true;
+    }
+
+    [RelayCommand]
+    private void ShowSourceName()
+    {
+        UseLocalizedName = false;
+    }
+
+    [RelayCommand]
+    private void ShowLocalizedSummary()
+    {
+        if (!HasLocalizedResourceSummary)
+        {
+            return;
+        }
+
+        UseLocalizedSummary = true;
+    }
+
+    [RelayCommand]
+    private void ShowSourceSummary()
+    {
+        UseLocalizedSummary = false;
+    }
+
+    [RelayCommand]
+    private void OpenSourcePage()
+    {
+        if (!HasSourcePageUrl)
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = SourcePageUrl,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Ignore browser open failures to keep details page responsive.
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyNameAsync()
+    {
+        var text = DisplayResourceName;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var clipboard = GetClipboard();
+        if (clipboard == null)
+        {
+            DetailsStatus = "当前环境不支持剪贴板";
+            OnPropertyChanged(nameof(DetailsStatus));
+            return;
+        }
+
+        await clipboard.SetTextAsync(text);
+        DetailsStatus = "已复制名称";
+        OnPropertyChanged(nameof(DetailsStatus));
+    }
+
+    [RelayCommand]
+    private async Task CopyIdAsync()
+    {
+        var rawId = ResourceIdText?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(rawId) || string.Equals(rawId, "-", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var copyValue = IsCollectionDetails ? $"collections/{rawId}" : rawId;
+        var clipboard = GetClipboard();
+        if (clipboard == null)
+        {
+            DetailsStatus = "当前环境不支持剪贴板";
+            OnPropertyChanged(nameof(DetailsStatus));
+            return;
+        }
+
+        await clipboard.SetTextAsync(copyValue);
+        DetailsStatus = $"已复制{CopyIdButtonText}";
+        OnPropertyChanged(nameof(DetailsStatus));
+    }
+
+    [RelayCommand]
+    private void OpenLocalizationContributionPage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = LocalizationContributionUrl,
+                UseShellExecute = true
+            });
+            DetailsStatus = "已打开本地化贡献页面";
+            OnPropertyChanged(nameof(DetailsStatus));
+        }
+        catch
+        {
+            DetailsStatus = "打开本地化贡献页面失败";
+            OnPropertyChanged(nameof(DetailsStatus));
+        }
+    }
+
+    [RelayCommand]
+    private void ShowLocalizationContributorInfo()
+    {
+        DetailsStatus = "可在贡献页面提交术语、译名与说明，审核通过后将自动同步到详情展示。";
         OnPropertyChanged(nameof(DetailsStatus));
     }
 
     [RelayCommand]
     private void QueueDownload()
     {
+        if (string.IsNullOrWhiteSpace(SelectedDownloadOption))
+        {
+            return;
+        }
+
         QueueDownloadRequested?.Invoke(new ExternalDownloadRequest
         {
-            ResourceName = ResourceName,
+            ResourceName = DisplayResourceName,
             ResourceSource = ResourceSource,
             SelectedDownloadOption = SelectedDownloadOption
         });
+    }
+
+    partial void OnUseLocalizedNameChanged(bool value)
+    {
+        OnPropertyChanged(nameof(DisplayResourceName));
+    }
+
+    partial void OnUseLocalizedSummaryChanged(bool value)
+    {
+        OnPropertyChanged(nameof(DisplayResourceSummary));
+    }
+
+    partial void OnSelectedDownloadOptionChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanQueueDownload));
+    }
+
+    private void RaiseResourceHeaderState()
+    {
+        OnPropertyChanged(nameof(ResourceName));
+        OnPropertyChanged(nameof(ResourceNotes));
+        OnPropertyChanged(nameof(ResourceSource));
+        OnPropertyChanged(nameof(ResourceMetricTag));
+        OnPropertyChanged(nameof(ResourceTimeTag));
+        OnPropertyChanged(nameof(ResourceIdText));
+        OnPropertyChanged(nameof(IsCollectionDetails));
+        OnPropertyChanged(nameof(CopyIdButtonText));
+        OnPropertyChanged(nameof(HasResourceMetricTag));
+        OnPropertyChanged(nameof(HasResourceTimeTag));
+        OnPropertyChanged(nameof(SourceResourceName));
+        OnPropertyChanged(nameof(LocalizedResourceName));
+        OnPropertyChanged(nameof(SourceResourceSummary));
+        OnPropertyChanged(nameof(LocalizedResourceSummary));
+        OnPropertyChanged(nameof(HasLocalizedResourceName));
+        OnPropertyChanged(nameof(HasLocalizedResourceSummary));
+        OnPropertyChanged(nameof(HasVersionOptions));
+        OnPropertyChanged(nameof(HasNoVersionOptions));
+        OnPropertyChanged(nameof(HasDependencyItems));
+        OnPropertyChanged(nameof(HasNoDependencyItems));
+        OnPropertyChanged(nameof(HasRequiredDependencyItems));
+        OnPropertyChanged(nameof(HasHardConflictDependencyItems));
+        OnPropertyChanged(nameof(HasFunctionalOverlapDependencyItems));
+        OnPropertyChanged(nameof(HasDownloadOptions));
+        OnPropertyChanged(nameof(DisplayResourceName));
+        OnPropertyChanged(nameof(DisplayResourceSummary));
+        OnPropertyChanged(nameof(SourcePageUrl));
+        OnPropertyChanged(nameof(HasSourcePageUrl));
+        OnPropertyChanged(nameof(DetailsStatus));
+        OnPropertyChanged(nameof(CanQueueDownload));
+    }
+
+    private void ClassifyDependencyGroups()
+    {
+        RequiredDependencyItems.Clear();
+        HardConflictDependencyItems.Clear();
+        FunctionalOverlapDependencyItems.Clear();
+
+        foreach (var item in DependencyItems)
+        {
+            var normalized = item?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            if (IsHardConflictDependency(normalized))
+            {
+                HardConflictDependencyItems.Add(normalized);
+                continue;
+            }
+
+            if (IsFunctionalOverlapDependency(normalized))
+            {
+                FunctionalOverlapDependencyItems.Add(normalized);
+                continue;
+            }
+
+            RequiredDependencyItems.Add(normalized);
+        }
+    }
+
+    private static bool IsHardConflictDependency(string text)
+    {
+        return text.Contains("冲突", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("conflict", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("不兼容", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("incompatible", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFunctionalOverlapDependency(string text)
+    {
+        return text.Contains("功能重叠", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("功能重复", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("同类", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("overlap", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static global::Avalonia.Input.Platform.IClipboard? GetClipboard()
+    {
+        if (global::Avalonia.Application.Current?.ApplicationLifetime is global::Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return desktop.MainWindow?.Clipboard;
+        }
+
+        return null;
+    }
+
+    private static ParsedDisplayText ParseDisplayText(string displayText)
+    {
+        var parsed = new ParsedDisplayText
+        {
+            SourceLabel = "-",
+            SourceName = string.Empty,
+            SourceSummary = string.Empty,
+            LocalizedName = string.Empty,
+            LocalizedSummary = string.Empty,
+            ResourceId = string.Empty,
+            MetricTag = string.Empty,
+            TimeTag = string.Empty,
+            SourceToken = string.Empty,
+            IsCollection = false
+        };
+
+        if (string.IsNullOrWhiteSpace(displayText))
+        {
+            return parsed;
+        }
+
+        var parts = displayText.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return parsed;
+        }
+
+        var header = parts[0];
+        if (header.StartsWith("[", StringComparison.Ordinal))
+        {
+            var closeIndex = header.IndexOf(']');
+            if (closeIndex > 1)
+            {
+                var sourceSegment = header[1..closeIndex].Trim();
+                var nameSegment = header[(closeIndex + 1)..].Trim();
+                parsed.SourceName = string.IsNullOrWhiteSpace(nameSegment) ? parsed.SourceName : nameSegment;
+
+                var sourceParts = sourceSegment.Split('#', 2, StringSplitOptions.TrimEntries);
+                parsed.SourceToken = sourceParts[0];
+                parsed.SourceLabel = ResolveSourceLabel(sourceParts[0]);
+                parsed.ResourceId = sourceParts.Length > 1 ? sourceParts[1] : string.Empty;
+                parsed.IsCollection = parsed.SourceToken.Contains("Pack", StringComparison.OrdinalIgnoreCase) ||
+                                      parsed.SourceToken.Contains("Collection", StringComparison.OrdinalIgnoreCase);
+            }
+            else
+            {
+                parsed.SourceName = header;
+            }
+        }
+        else
+        {
+            parsed.SourceName = header;
+        }
+
+        for (var index = 1; index < parts.Length; index++)
+        {
+            var segment = parts[index];
+            if (segment.StartsWith("metric=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.MetricTag = segment[7..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("time=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.TimeTag = segment[5..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("srcName=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.SourceName = segment[8..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("srcSummary=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.SourceSummary = segment[11..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("zhName=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.LocalizedName = segment[7..].Trim();
+                continue;
+            }
+
+            if (segment.StartsWith("zhSummary=", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.LocalizedSummary = segment[10..].Trim();
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(parsed.SourceSummary))
+            {
+                parsed.SourceSummary = segment;
+            }
+        }
+
+        return parsed;
+    }
+
+    private static string ResolveSourceLabel(string sourceToken)
+    {
+        if (sourceToken.Contains("github", StringComparison.OrdinalIgnoreCase))
+        {
+            return "GitHub";
+        }
+
+        if (sourceToken.Contains("nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            return "NexusMods";
+        }
+
+        if (sourceToken.Contains("curse", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Curseforge";
+        }
+
+        return "-";
+    }
+
+    private static string BuildSourcePageUrl(ParsedDisplayText parsed)
+    {
+        if (string.IsNullOrWhiteSpace(parsed.SourceToken))
+        {
+            return string.Empty;
+        }
+
+        if (parsed.SourceToken.Contains("github", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://github.com/Pathoschild/SMAPI/releases";
+        }
+
+        if (parsed.SourceToken.Contains("nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            if (parsed.IsCollection)
+            {
+                return "https://next.nexusmods.com/stardewvalley/collections";
+            }
+
+            if (long.TryParse(parsed.ResourceId, out var nexusModId) && nexusModId > 0)
+            {
+                return $"https://www.nexusmods.com/stardewvalley/mods/{nexusModId}";
+            }
+
+            return "https://www.nexusmods.com/stardewvalley/mods";
+        }
+
+        if (parsed.SourceToken.Contains("curse", StringComparison.OrdinalIgnoreCase))
+        {
+            if (long.TryParse(parsed.ResourceId, out var curseforgeId) && curseforgeId > 0)
+            {
+                return $"https://www.curseforge.com/projects/{curseforgeId}";
+            }
+
+            return "https://www.curseforge.com/stardewvalley/mods";
+        }
+
+        return string.Empty;
+    }
+
+    private sealed class ParsedDisplayText
+    {
+        public string SourceLabel { get; set; } = "-";
+        public string SourceName { get; set; } = string.Empty;
+        public string SourceSummary { get; set; } = string.Empty;
+        public string LocalizedName { get; set; } = string.Empty;
+        public string LocalizedSummary { get; set; } = string.Empty;
+        public string ResourceId { get; set; } = string.Empty;
+        public string MetricTag { get; set; } = string.Empty;
+        public string TimeTag { get; set; } = string.Empty;
+        public string SourceToken { get; set; } = string.Empty;
+        public bool IsCollection { get; set; }
     }
 }
 
 public sealed class ModTagFilterOption
 {
-    private const string FolderPrefix = "[Folder] ";
-    private const string PrefixFolderPrefix = "[Prefix] ";
-    private const string CustomTagPrefix = "[Custom] ";
+    private const string FolderPrefix = "📂 ";
+    private const string PrefixFolderPrefix = "🧩 ";
+    private const string CustomTagPrefix = "🏷 ";
 
     public string Key { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
@@ -414,6 +978,99 @@ public sealed class ModCustomTagDefinition
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+}
+
+public enum ModManagePrimaryTab
+{
+    Mods,
+    Backup
+}
+
+public enum ModManageSubFilter
+{
+    All,
+    Enabled,
+    Disabled,
+    Updatable
+}
+
+public sealed class ModBackupRecord
+{
+    public string OriginalFolderName { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
+    public string Author { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string UniqueId { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+}
+
+public sealed class ModDependencyDisplayItem
+{
+    public string UniqueId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string MinimumVersion { get; set; } = string.Empty;
+    public bool IsRequired { get; set; } = true;
+    public bool IsInstalled { get; set; }
+    public bool IsInstalledAndEnabled { get; set; }
+    public bool IsInstalledButDisabled { get; set; }
+    public string InstalledModId { get; set; } = string.Empty;
+    public string InstalledModName { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+
+    public string DisplayText => string.IsNullOrWhiteSpace(MinimumVersion)
+        ? DisplayName
+        : $"{DisplayName} >= {MinimumVersion}";
+
+    public string StatusPrefix
+    {
+        get
+        {
+            if (!IsRequired)
+            {
+                if (!IsInstalled)
+                {
+                    return "[未安装] ";
+                }
+
+                if (IsInstalledButDisabled)
+                {
+                    return "[被禁用] ";
+                }
+
+                return "[可选] ";
+            }
+
+            if (!IsInstalled)
+            {
+                return "[未安装] ";
+            }
+
+            if (IsInstalledButDisabled)
+            {
+                return "[被禁用] ";
+            }
+
+            return string.Empty;
+        }
+    }
+
+    public string StatusPrefixColor
+    {
+        get
+        {
+            if (!IsRequired)
+            {
+                return (!IsInstalled || IsInstalledButDisabled) ? "#D8A131" : "#3E8EDE";
+            }
+
+            return (!IsInstalled || IsInstalledButDisabled) ? "#D45555" : "#3E8EDE";
+        }
+    }
+
+    public string StatusSuffix => !IsRequired && (!IsInstalled || IsInstalledButDisabled)
+        ? "[可选] "
+        : string.Empty;
 }
 
 public static class ModTagConfigService
@@ -537,11 +1194,23 @@ public static class ModTagConfigService
 
 public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelBase
 {
+    private const string NexusGameDomain = "stardewvalley";
+    private static readonly HttpClient s_modNetworkHttp = CreateModNetworkHttpClient();
+    private static readonly JsonSerializerOptions s_sourceJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+        WriteIndented = true
+    };
+
     private readonly Services.AppUserSettingsStore _settingsStore;
     private readonly IGameInstallPathLocator _gameInstallPathLocator;
     private readonly Services.LocalizationService _localizationService;
     private readonly Services.ImageResourceService _imageResourceService;
     private readonly Services.DialogService _dialogService;
+    private bool _isCheckingModUpdates;
+    private bool _isCheckingLocalization;
     private ModTagConfig _modTagConfig = new();
     private string _currentModsPathForTagConfig = string.Empty;
     private string _titleText = "版本设置";
@@ -728,10 +1397,37 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     private string _exportSectionTitleText = "导出";
 
     [ObservableProperty]
+    private string _modpackName = "我的整合包";
+
+    [ObservableProperty]
+    private string _modpackVersion = "1.0.0";
+
+    [ObservableProperty]
+    private string _modpackAuthor = string.Empty;
+
+    [ObservableProperty]
+    private bool _includeMods = true;
+
+    [ObservableProperty]
+    private bool _includeModSettings = true;
+
+    [ObservableProperty]
+    private bool _includeSvlLauncher;
+
+    [ObservableProperty]
     private string _exportNamePrefix = "SVL-Modpack";
 
     [ObservableProperty]
     private string _lastExportPath = string.Empty;
+
+    [ObservableProperty]
+    private int _exportProgress;
+
+    [ObservableProperty]
+    private bool _isExporting;
+
+    [ObservableProperty]
+    private string _exportStatusMessage = "就绪";
 
     [ObservableProperty]
     private string _exportCurrentModsButtonText = "导出当前 Mods";
@@ -785,18 +1481,69 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     private ModTagFilterOption? _selectedCustomTag;
 
     [ObservableProperty]
+    private string _searchKeyword = string.Empty;
+
+    [ObservableProperty]
+    private string _tagSearchKeyword = string.Empty;
+
+    [ObservableProperty]
+    private ModManagePrimaryTab _currentModManageTab = ModManagePrimaryTab.Mods;
+
+    [ObservableProperty]
+    private ModManageSubFilter _currentModSubFilter = ModManageSubFilter.All;
+
+    [ObservableProperty]
+    private bool _isTagPanelExpanded = true;
+
+    [ObservableProperty]
+    private bool _showFolderTags = true;
+
+    [ObservableProperty]
+    private bool _showPrefixTags = true;
+
+    [ObservableProperty]
+    private bool _showCustomTags = true;
+
+    [ObservableProperty]
     private string _newCustomTagName = string.Empty;
 
     [ObservableProperty]
     private string _renameCustomTagName = string.Empty;
 
     [ObservableProperty]
-    private string _inlineTagHint = "点击标签可多选，按“绑定选中标签”即可应用到当前选中 Mod。";
+    private string _inlineTagHint = "点击标签可多选，支持快速筛选；可一键清除当前选中 Tags。";
 
     [ObservableProperty]
     private string _modManageHint = "请选择一个 Mod 进行管理";
 
+    [ObservableProperty]
+    private int _selectedCount;
+
+    [ObservableProperty]
+    private bool _showSelectionActions;
+
+    [ObservableProperty]
+    private int _currentPageIndex = 1;
+
+    [ObservableProperty]
+    private int _totalPages = 1;
+
+    [ObservableProperty]
+    private int _totalFilteredCount;
+
+    [ObservableProperty]
+    private List<string> _pageNumbers = [];
+
+    private readonly List<ModManageItem> _filteredSource = [];
+    private const int ModsPageSize = 10;
+    private const string BackupRootFolderName = "ModsBackup";
+    private const string BackupMetaFileName = ".svl-backup.json";
+
     public ObservableCollection<ModManageItem> Mods { get; } = [];
+
+    public ObservableCollection<ModManageItem> BackupMods { get; } = [];
+
+    public ObservableCollection<ExportModSelectionItem> ExportModItems { get; } = [];
 
     public ObservableCollection<ModManageItem> FilteredMods { get; } = [];
 
@@ -830,21 +1577,56 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
     public bool HasSelectedMod => SelectedMod != null;
 
-    public bool HasMods => Mods.Count > 0;
+    public bool HasMods => IsBackupTab ? BackupMods.Count > 0 : Mods.Count > 0;
 
     public bool HasFilteredMods => FilteredMods.Count > 0;
 
     public bool ShowEmptyModsHint => !HasFilteredMods;
 
-    public bool CanOperateSelectedMod => SelectedMod != null;
+    public bool CanOperateSelectedMod => IsModsTab && SelectedMod is { IsBackupItem: false };
 
     public bool HasSelectedCustomTag => SelectedCustomTag != null;
 
     public bool HasSelectedTagPanelItems => TagPanelItems.Any(item => item.IsSelected);
 
-    public bool CanBatchAddSelectedTags => CanOperateSelectedMod && HasSelectedTagPanelItems;
+    public bool CanBatchAddSelectedTags => SelectedCount > 0 && HasSelectedTagPanelItems;
 
-    public bool CanBatchRemoveSelectedTags => CanOperateSelectedMod && HasSelectedTagPanelItems;
+    public bool CanBatchRemoveSelectedTags => SelectedCount > 0 && HasSelectedTagPanelItems;
+
+    public bool ShowTagBatchAction => IsModsTab && SelectedCount > 0 &&
+                                      (HasSelectedTagPanelItems || !string.IsNullOrWhiteSpace(TagSearchKeyword));
+
+    public string TagBatchActionText => ShouldRemoveSelectedTagsFromSelectedMods() ? "删除标签" : "添加标签";
+
+    public bool CanApplyTagSelectionToSearch =>
+        TagPanelItems.Any(item => item.IsSelected) ||
+        (SelectedTagFilter != null && !SelectedTagFilter.IsAllOption);
+
+    public bool IsModsTab => CurrentModManageTab == ModManagePrimaryTab.Mods;
+
+    public bool IsBackupTab => CurrentModManageTab == ModManagePrimaryTab.Backup;
+
+    public bool IsAllFilter => CurrentModSubFilter == ModManageSubFilter.All;
+
+    public bool IsEnabledFilter => CurrentModSubFilter == ModManageSubFilter.Enabled;
+
+    public bool IsDisabledFilter => CurrentModSubFilter == ModManageSubFilter.Disabled;
+
+    public bool IsUpdatableFilter => CurrentModSubFilter == ModManageSubFilter.Updatable;
+
+    public string TagPanelToggleText => IsTagPanelExpanded ? "收起" : "展开";
+
+    public bool HasPreviousPage => CurrentPageIndex > 1;
+
+    public bool HasNextPage => CurrentPageIndex < TotalPages;
+
+    public string PageInfo => $"{CurrentPageIndex}/{TotalPages}";
+
+    public bool IsCurrentPageAllSelected => FilteredMods.Count > 0 && FilteredMods.All(item => item.IsSelected);
+
+    public bool CanToggleCurrentPageSelection => FilteredMods.Count > 0;
+
+    public bool ShowSelectionActionsBar => IsModManageSection && ShowSelectionActions;
 
     public string CurrentInstanceFolderPath => ResolveCurrentInstancePath();
 
@@ -863,25 +1645,61 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
     public bool CanUninstallBaseSmapi => !CanDeleteCurrentVersion && HasInstalledSmapi;
 
-    public string ModsSummary => Mods.Count == 0
-        ? "当前实例 Mods 目录为空"
-        : $"共 {Mods.Count} 个 Mod：启用 {Mods.Count(item => item.IsEnabled)} 个，禁用 {Mods.Count(item => !item.IsEnabled)} 个";
+    public string ModsSummary => IsBackupTab
+        ? (BackupMods.Count == 0 ? "当前没有备份记录" : $"共 {BackupMods.Count} 个备份")
+        : (Mods.Count == 0
+            ? "当前实例 Mods 目录为空"
+            : $"共 {Mods.Count} 个 Mod：启用 {Mods.Count(item => item.IsEnabled)} 个，禁用 {Mods.Count(item => !item.IsEnabled)} 个");
+
+    public string CurrentEmptyHintText => IsBackupTab
+        ? "当前没有备份记录。可在 Mods 标签页选择 Mod 后执行备份。"
+        : EmptyModsHintText;
 
     public int EnabledModsCount => Mods.Count(item => item.IsEnabled);
 
     public int DisabledModsCount => Mods.Count(item => !item.IsEnabled);
 
-    public bool CanEnableSelectedMod => SelectedMod is { IsEnabled: false };
+    public int UpdatableModsCount => Mods.Count(item => item.HasUpdate);
 
-    public bool CanDisableSelectedMod => SelectedMod is { IsEnabled: true };
+    public int BackupModsCount => BackupMods.Count;
+
+    public string ModsTabText => $"Mods({Mods.Count})";
+
+    public string BackupTabText => $"备份({BackupModsCount})";
+
+    public string AllFilterText => $"全部({Mods.Count})";
+
+    public string EnabledFilterText => $"启用({EnabledModsCount})";
+
+    public string DisabledFilterText => $"禁用({DisabledModsCount})";
+
+    public string UpdatableFilterText => $"可更新({UpdatableModsCount})";
+
+    public bool CanEnableSelectedMod => IsModsTab && SelectedMod is { IsEnabled: false, IsBackupItem: false };
+
+    public bool CanDisableSelectedMod => IsModsTab && SelectedMod is { IsEnabled: true, IsBackupItem: false };
 
     public string SelectedModDetails => SelectedMod == null
         ? "当前未选中 Mod"
-        : $"{SelectedMod.DisplayName} · {SelectedMod.Version} · {SelectedMod.EnableStateText} · 目录: {SelectedMod.DirectoryName}";
+        : (SelectedMod.IsBackupItem
+            ? $"{SelectedMod.DisplayName} · 原目录: {SelectedMod.BackupOriginalFolderName} · 备份时间: {SelectedMod.BackupTimeText}"
+            : $"{SelectedMod.DisplayName} · {SelectedMod.Version} · {SelectedMod.EnableStateText} · 目录: {SelectedMod.DirectoryName}");
 
     public string ExportHint => string.IsNullOrWhiteSpace(LastExportPath)
         ? "尚未导出"
         : $"最近导出: {LastExportPath}";
+
+    public int SelectedExportModCount => ExportModItems.Count(item => item.IsSelected);
+
+    public int TotalExportModCount => ExportModItems.Count;
+
+    public bool ShowExportModList => IncludeMods;
+
+    public bool CanStartExport => !IsExporting && (!IncludeMods || SelectedExportModCount > 0);
+
+    public string ExportProgressText => IsExporting
+        ? $"导出进度 {ExportProgress}%"
+        : $"已选择 {SelectedExportModCount}/{TotalExportModCount} 个 Mod";
 
     public ObservableCollection<string> LaunchModes { get; } = ["自动", "SMAPI", "原版"];
 
@@ -917,6 +1735,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         _dialogService = dialogService;
         _localizationService.LanguageChanged += ApplyLocalizedTexts;
         _imageResourceService.ResourcesChanged += RefreshInstanceRuntimeInfo;
+        ModpackAuthor = Environment.UserName;
 
         ApplyLocalizedTexts();
 
@@ -928,12 +1747,41 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             OnPropertyChanged(nameof(ModsSummary));
             OnPropertyChanged(nameof(EnabledModsCount));
             OnPropertyChanged(nameof(DisabledModsCount));
+            OnPropertyChanged(nameof(UpdatableModsCount));
+            OnPropertyChanged(nameof(ModsTabText));
+            OnPropertyChanged(nameof(AllFilterText));
+            OnPropertyChanged(nameof(EnabledFilterText));
+            OnPropertyChanged(nameof(DisabledFilterText));
+            OnPropertyChanged(nameof(UpdatableFilterText));
+            UpdateSelectionState();
+        };
+
+        BackupMods.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(BackupModsCount));
+            OnPropertyChanged(nameof(HasMods));
+            OnPropertyChanged(nameof(ModsSummary));
+            OnPropertyChanged(nameof(HasFilteredMods));
+            OnPropertyChanged(nameof(ShowEmptyModsHint));
+            OnPropertyChanged(nameof(CurrentEmptyHintText));
+            OnPropertyChanged(nameof(BackupTabText));
+            UpdateSelectionState();
         };
 
         FilteredMods.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasFilteredMods));
             OnPropertyChanged(nameof(ShowEmptyModsHint));
+            OnPropertyChanged(nameof(IsCurrentPageAllSelected));
+            OnPropertyChanged(nameof(CanToggleCurrentPageSelection));
+        };
+
+        ExportModItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(SelectedExportModCount));
+            OnPropertyChanged(nameof(TotalExportModCount));
+            OnPropertyChanged(nameof(CanStartExport));
+            OnPropertyChanged(nameof(ExportProgressText));
         };
 
         ReloadFromSettings();
@@ -949,6 +1797,16 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         EnableSafeLaunch = settings.EnableSafeLaunch;
         InstanceName = settings.InstanceName;
         InstanceDescription = settings.InstanceDescription;
+        if (string.IsNullOrWhiteSpace(ModpackName) || string.Equals(ModpackName, "我的整合包", StringComparison.Ordinal))
+        {
+            ModpackName = string.IsNullOrWhiteSpace(settings.InstanceName) ? "我的整合包" : settings.InstanceName;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModpackAuthor))
+        {
+            ModpackAuthor = Environment.UserName;
+        }
+
         GameWindowTitle = string.IsNullOrWhiteSpace(settings.GameWindowTitle) ? "<default>" : settings.GameWindowTitle;
         InstanceCustomLaunchArguments = settings.InstanceCustomLaunchArguments;
         IsFavoriteInstance = settings.IsFavoriteInstance;
@@ -1086,6 +1944,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     {
         SelectedSection = "Export";
         IsModManageSection = false;
+        ReloadExportModItems();
         Status = "当前处于导出页面";
     }
 
@@ -1111,12 +1970,40 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             return;
         }
 
+        if (string.Equals(value, "Export", StringComparison.Ordinal))
+        {
+            ReloadExportModItems();
+        }
+
         IsModManageSection = false;
+    }
+
+    partial void OnIncludeModsChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowExportModList));
+        OnPropertyChanged(nameof(CanStartExport));
+    }
+
+    partial void OnIsExportingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanStartExport));
+        OnPropertyChanged(nameof(ExportProgressText));
+    }
+
+    partial void OnExportProgressChanged(int value)
+    {
+        OnPropertyChanged(nameof(ExportProgressText));
+    }
+
+    partial void OnLastExportPathChanged(string value)
+    {
+        OnPropertyChanged(nameof(ExportHint));
     }
 
     partial void OnIsModManageSectionChanged(bool value)
     {
         OnPropertyChanged(nameof(IsGeneralSection));
+        OnPropertyChanged(nameof(ShowSelectionActionsBar));
     }
 
     partial void OnSelectedLaunchModeChanged(string value)
@@ -1191,13 +2078,103 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
     partial void OnSelectedTagFilterChanged(ModTagFilterOption? value)
     {
-        ApplyTagFilter();
+        OnPropertyChanged(nameof(CanApplyTagSelectionToSearch));
+        OnPropertyChanged(nameof(TagBatchActionText));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
     }
 
     partial void OnSelectedCustomTagChanged(ModTagFilterOption? value)
     {
         RenameCustomTagName = value?.Name ?? string.Empty;
         OnPropertyChanged(nameof(HasSelectedCustomTag));
+    }
+
+    partial void OnCurrentModManageTabChanged(ModManagePrimaryTab value)
+    {
+        CurrentPageIndex = 1;
+        ClearSelection();
+        OnPropertyChanged(nameof(IsModsTab));
+        OnPropertyChanged(nameof(IsBackupTab));
+        OnPropertyChanged(nameof(HasMods));
+        OnPropertyChanged(nameof(ModsSummary));
+        OnPropertyChanged(nameof(CurrentEmptyHintText));
+        OnPropertyChanged(nameof(CanOperateSelectedMod));
+        OnPropertyChanged(nameof(CanEnableSelectedMod));
+        OnPropertyChanged(nameof(CanDisableSelectedMod));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
+        ApplyTagFilter();
+    }
+
+    partial void OnEmptyModsHintTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(CurrentEmptyHintText));
+    }
+
+    partial void OnCurrentModSubFilterChanged(ModManageSubFilter value)
+    {
+        CurrentPageIndex = 1;
+        OnPropertyChanged(nameof(IsAllFilter));
+        OnPropertyChanged(nameof(IsEnabledFilter));
+        OnPropertyChanged(nameof(IsDisabledFilter));
+        OnPropertyChanged(nameof(IsUpdatableFilter));
+        if (IsModsTab)
+        {
+            ApplyTagFilter();
+        }
+    }
+
+    partial void OnIsTagPanelExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(TagPanelToggleText));
+    }
+
+    partial void OnSearchKeywordChanged(string value)
+    {
+        CurrentPageIndex = 1;
+        ApplyTagFilter();
+    }
+
+    partial void OnTagSearchKeywordChanged(string value)
+    {
+        RefreshTagFilters();
+        OnPropertyChanged(nameof(CanApplyTagSelectionToSearch));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
+    }
+
+    partial void OnShowFolderTagsChanged(bool value)
+    {
+        RefreshTagFilters();
+    }
+
+    partial void OnShowPrefixTagsChanged(bool value)
+    {
+        RefreshTagFilters();
+    }
+
+    partial void OnShowCustomTagsChanged(bool value)
+    {
+        RefreshTagFilters();
+    }
+
+    partial void OnCurrentPageIndexChanged(int value)
+    {
+        RefreshPagedMods();
+        UpdatePageNumbers();
+        OnPropertyChanged(nameof(HasPreviousPage));
+        OnPropertyChanged(nameof(HasNextPage));
+        OnPropertyChanged(nameof(PageInfo));
+        OnPropertyChanged(nameof(CanToggleCurrentPageSelection));
+    }
+
+    partial void OnTotalPagesChanged(int value)
+    {
+        UpdatePageNumbers();
+        OnPropertyChanged(nameof(HasPreviousPage));
+        OnPropertyChanged(nameof(HasNextPage));
+        OnPropertyChanged(nameof(PageInfo));
+        OnPropertyChanged(nameof(CanToggleCurrentPageSelection));
     }
 
     private void RefreshModManageHint(string? overrideHint = null)
@@ -1210,9 +2187,18 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
         if (SelectedMod == null)
         {
-            ModManageHint = ShowEmptyModsHint
-                ? "未检测到 Mod，可前往下载页安装后再返回管理"
-                : "请选择一个 Mod 进行启用、禁用或卸载";
+            if (IsBackupTab)
+            {
+                ModManageHint = ShowEmptyModsHint
+                    ? "当前没有备份记录，可在 Mods 标签页执行备份"
+                    : "请选择一个备份执行恢复或删除";
+            }
+            else
+            {
+                ModManageHint = ShowEmptyModsHint
+                    ? "未检测到 Mod，可前往下载页安装后再返回管理"
+                    : "请选择一个 Mod 进行启用、禁用或卸载";
+            }
             return;
         }
 
@@ -1236,6 +2222,19 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             OnPropertyChanged(nameof(ModsSummary));
             OnPropertyChanged(nameof(EnabledModsCount));
             OnPropertyChanged(nameof(DisabledModsCount));
+            OnPropertyChanged(nameof(EnabledFilterText));
+            OnPropertyChanged(nameof(DisabledFilterText));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ModManageItem.HasUpdate), StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(UpdatableModsCount));
+            OnPropertyChanged(nameof(UpdatableFilterText));
+        }
+
+        if (string.Equals(e.PropertyName, nameof(ModManageItem.IsSelected), StringComparison.Ordinal))
+        {
+            UpdateSelectionState();
         }
 
         if (ReferenceEquals(sender, SelectedMod) &&
@@ -1293,6 +2292,48 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
+    private void SwitchModsTab()
+    {
+        CurrentModManageTab = ModManagePrimaryTab.Mods;
+    }
+
+    [RelayCommand]
+    private void SwitchBackupTab()
+    {
+        CurrentModManageTab = ModManagePrimaryTab.Backup;
+    }
+
+    [RelayCommand]
+    private void SetAllFilter()
+    {
+        CurrentModSubFilter = ModManageSubFilter.All;
+    }
+
+    [RelayCommand]
+    private void SetEnabledFilter()
+    {
+        CurrentModSubFilter = ModManageSubFilter.Enabled;
+    }
+
+    [RelayCommand]
+    private void SetDisabledFilter()
+    {
+        CurrentModSubFilter = ModManageSubFilter.Disabled;
+    }
+
+    [RelayCommand]
+    private void SetUpdatableFilter()
+    {
+        CurrentModSubFilter = ModManageSubFilter.Updatable;
+    }
+
+    [RelayCommand]
+    private void ToggleTagPanelExpanded()
+    {
+        IsTagPanelExpanded = !IsTagPanelExpanded;
+    }
+
+    [RelayCommand]
     private void SwitchToInstanceSettingsSection()
     {
         SwitchToSettings();
@@ -1307,15 +2348,13 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     [RelayCommand]
     private void OpenCurrentInstanceModsFolder()
     {
-        var settings = _settingsStore.Load();
-        if (string.IsNullOrWhiteSpace(settings.PreferredInstancePath) || !Directory.Exists(settings.PreferredInstancePath))
+        if (!TryGetCurrentModsPath(out var modsPath))
         {
             Status = "当前实例目录不可用，无法打开 Mods 文件夹";
             RefreshModManageHint("当前实例目录不可用，请先在版本选择页选中实例");
             return;
         }
 
-        var modsPath = Path.Combine(settings.PreferredInstancePath, "Mods");
         Directory.CreateDirectory(modsPath);
         Status = $"Mod 文件夹: {modsPath}";
         RefreshModManageHint("已打开 Mods 文件夹，可直接拖入或整理 Mod");
@@ -1336,11 +2375,839 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
+    private void OpenBackupFolder()
+    {
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法打开备份目录";
+            return;
+        }
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        Directory.CreateDirectory(backupRoot);
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = backupRoot,
+                UseShellExecute = true
+            };
+            Process.Start(psi);
+            Status = "已打开备份目录";
+        }
+        catch
+        {
+            Status = "打开备份目录失败";
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleAllSelection()
+    {
+        if (_filteredSource.Count == 0)
+        {
+            return;
+        }
+
+        var allSelected = _filteredSource.All(item => item.IsSelected);
+        foreach (var mod in _filteredSource)
+        {
+            mod.IsSelected = !allSelected;
+        }
+
+        UpdateSelectionState();
+    }
+
+    [RelayCommand]
+    private async Task CheckAllModsUpdate()
+    {
+        if (IsBackupTab)
+        {
+            Status = "备份标签页不支持检测更新";
+            return;
+        }
+
+        if (_isCheckingModUpdates || _isCheckingLocalization)
+        {
+            Status = "已有检测任务正在运行，请稍后重试";
+            return;
+        }
+
+        if (Mods.Count == 0)
+        {
+            Status = "当前没有可检测的 Mod";
+            return;
+        }
+
+        _isCheckingModUpdates = true;
+        try
+        {
+            var modsToCheck = Mods.Where(mod => !mod.IsBackupItem).ToList();
+            var totalCount = modsToCheck.Count;
+            var maxThreads = GetModCheckConcurrency();
+            var completedCount = 0;
+            var updatableCount = 0;
+            var tokenExpiredFlag = 0;
+
+            Status = $"更新检测：准备中 | 0/{totalCount}";
+
+            using var semaphore = new SemaphoreSlim(maxThreads, maxThreads);
+            var tasks = modsToCheck.Select(async mod =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var checkResult = await CheckUpdateForModAsync(mod);
+                    if (checkResult == null)
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            mod.HasUpdate = false;
+                            mod.UpdateStatus = "缺少来源信息";
+                        });
+                        return;
+                    }
+
+                    if (checkResult.HasUpdate)
+                    {
+                        Interlocked.Increment(ref updatableCount);
+                    }
+
+                    if (checkResult.IsTokenExpired)
+                    {
+                        Interlocked.Exchange(ref tokenExpiredFlag, 1);
+                    }
+
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        mod.HasUpdate = checkResult.HasUpdate;
+                        mod.CurseforgeProjectId = FirstNonEmpty(checkResult.CurseforgeProjectId, mod.CurseforgeProjectId);
+                        mod.NexusModsProjectId = FirstNonEmpty(checkResult.NexusModsProjectId, mod.NexusModsProjectId);
+                        mod.UpdateSource = FirstNonEmpty(checkResult.UpdateSource, mod.UpdateSource);
+                        mod.UpdateStatus = BuildUpdateStatusText(checkResult);
+                    });
+                }
+                catch
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        mod.HasUpdate = false;
+                        mod.UpdateStatus = "检测失败";
+                    });
+                }
+                finally
+                {
+                    var completed = Interlocked.Increment(ref completedCount);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        Status = $"更新检测：进行中 | {completed}/{totalCount}（可更新 {Volatile.Read(ref updatableCount)}，线程数 {maxThreads}）";
+                    });
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            Status = tokenExpiredFlag == 1
+                ? $"更新检测：已完成 | {totalCount}/{totalCount}（可更新 {updatableCount}，线程数 {maxThreads}，Nexus 登录已过期）"
+                : $"更新检测：已完成 | {totalCount}/{totalCount}（可更新 {updatableCount}，线程数 {maxThreads}）";
+
+            RefreshModManageHint("更新检测完成");
+        }
+        finally
+        {
+            _isCheckingModUpdates = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task CheckAllModsLocalization()
+    {
+        if (IsBackupTab)
+        {
+            Status = "备份标签页不支持检测汉化";
+            return;
+        }
+
+        if (_isCheckingModUpdates || _isCheckingLocalization)
+        {
+            Status = "已有检测任务正在运行，请稍后重试";
+            return;
+        }
+
+        if (Mods.Count == 0)
+        {
+            Status = "当前没有可检测的 Mod";
+            return;
+        }
+
+        _isCheckingLocalization = true;
+        try
+        {
+            var modsWithSource = Mods.Where(HasAnySourceForLocalization).ToList();
+            var totalToCheck = modsWithSource.Count;
+            if (totalToCheck == 0)
+            {
+                Status = "未找到可用于汉化检测的来源信息";
+                return;
+            }
+
+            var maxThreads = GetModCheckConcurrency();
+            var foundCount = 0;
+            var checkedCount = 0;
+            var outdatedCount = 0;
+            var appliedCount = 0;
+
+            Status = $"汉化检测：准备中 | 0/{totalToCheck}";
+
+            using var semaphore = new SemaphoreSlim(maxThreads, maxThreads);
+            var tasks = modsWithSource.Select(async mod =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var sourceInfo = TryGetLocalizationSourceInfo(mod);
+                    var localization = await TryFetchLocalizationEntryAsync(sourceInfo, mod.UniqueId);
+
+                    if (localization != null)
+                    {
+                        Interlocked.Increment(ref foundCount);
+                        if (ShouldApplyLocalization(mod, localization))
+                        {
+                            Interlocked.Increment(ref outdatedCount);
+                            if (await ApplyLocalizationEntryToModAsync(mod, localization, sourceInfo))
+                            {
+                                Interlocked.Increment(ref appliedCount);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // ignore single-mod localization failures
+                }
+                finally
+                {
+                    var checkedNow = Interlocked.Increment(ref checkedCount);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        Status = $"汉化检测：进行中 | {checkedNow}/{totalToCheck}（命中 {Volatile.Read(ref foundCount)}，可更新 {Volatile.Read(ref outdatedCount)}，已应用 {Volatile.Read(ref appliedCount)}，线程数 {maxThreads}）";
+                    });
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+            Status = $"汉化检测：已完成 | {checkedCount}/{totalToCheck}（命中 {foundCount}，可更新 {outdatedCount}，已应用 {appliedCount}）";
+            RefreshModManageHint("汉化检测完成");
+        }
+        finally
+        {
+            _isCheckingLocalization = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task InstallModFromLocal()
+    {
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法从本地安装";
+            return;
+        }
+
+        Directory.CreateDirectory(modsPath);
+
+        var importZip = await _dialogService.ShowConfirmAsync(
+            "从本地安装 Mod",
+            "点击“确定”选择压缩包（zip）；点击“取消”选择文件夹。") ;
+
+        string? sourcePath;
+        if (importZip)
+        {
+            sourcePath = await _dialogService.BrowseFilePathAsync(
+                "选择 Mod 压缩包",
+                [
+                    new global::Avalonia.Platform.Storage.FilePickerFileType("压缩包")
+                    {
+                        Patterns = ["*.zip"],
+                        MimeTypes = ["application/zip"]
+                    }
+                ]);
+        }
+        else
+        {
+            sourcePath = await _dialogService.BrowseFolderPathAsync("选择 Mod 文件夹");
+        }
+
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return;
+        }
+
+        var imported = ImportModsFromLocalSource(sourcePath, modsPath, importZip);
+        ReloadMods();
+        Status = imported > 0
+            ? $"已从本地安装 {imported} 个 Mod"
+            : "未检测到可安装的 Mod（请确认包含 manifest.json）";
+    }
+
+    [RelayCommand]
+    private void BackupSelectedMods()
+    {
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法执行备份";
+            return;
+        }
+
+        var selectedMods = GetEffectiveSelectedMods()
+            .Where(mod => !mod.IsBackupItem)
+            .ToList();
+        if (selectedMods.Count == 0)
+        {
+            Status = "请先选择至少一个 Mod 再执行备份";
+            return;
+        }
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        Directory.CreateDirectory(backupRoot);
+
+        var success = 0;
+        foreach (var mod in selectedMods)
+        {
+            if (TryBackupMod(mod, backupRoot))
+            {
+                success++;
+            }
+        }
+
+        LoadBackups(modsPath);
+        ApplyTagFilter();
+        Status = $"已完成备份：{success}/{selectedMods.Count}";
+    }
+
+    [RelayCommand]
+    private void RestoreSelectedBackups()
+    {
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法恢复备份";
+            return;
+        }
+
+        var selectedBackups = GetEffectiveSelectedMods()
+            .Where(mod => mod.IsBackupItem)
+            .ToList();
+        if (selectedBackups.Count == 0)
+        {
+            Status = "请先选择至少一个备份";
+            return;
+        }
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        Directory.CreateDirectory(backupRoot);
+
+        var restored = 0;
+        foreach (var backup in selectedBackups)
+        {
+            if (TryRestoreBackup(backup, modsPath, backupRoot))
+            {
+                restored++;
+            }
+        }
+
+        ReloadMods();
+        Status = $"已恢复备份：{restored}/{selectedBackups.Count}";
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelectedBackups()
+    {
+        var selectedBackups = GetEffectiveSelectedMods()
+            .Where(mod => mod.IsBackupItem)
+            .ToList();
+        if (selectedBackups.Count == 0)
+        {
+            Status = "请先选择至少一个备份";
+            return;
+        }
+
+        var confirmed = await _dialogService.ShowConfirmAsync(
+            "删除备份",
+            $"确定删除选中的 {selectedBackups.Count} 个备份吗？");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var deleted = 0;
+        foreach (var backup in selectedBackups)
+        {
+            if (string.IsNullOrWhiteSpace(backup.FullPath) || !Directory.Exists(backup.FullPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(backup.FullPath, true);
+                deleted++;
+            }
+            catch
+            {
+                // continue deleting others
+            }
+        }
+
+        if (TryGetCurrentModsPath(out var modsPath))
+        {
+            LoadBackups(modsPath);
+        }
+        ApplyTagFilter();
+        Status = $"已删除备份：{deleted}/{selectedBackups.Count}";
+    }
+
+    [RelayCommand]
+    private void ToggleItemEnabled(ModManageItem? item)
+    {
+        if (item == null || item.IsBackupItem)
+        {
+            return;
+        }
+
+        SelectedMod = item;
+        if (item.IsEnabled)
+        {
+            DisableSelectedMod();
+        }
+        else
+        {
+            EnableSelectedMod();
+        }
+    }
+
+    [RelayCommand]
+    private async Task CheckItemUpdate(ModManageItem? item)
+    {
+        if (item == null || item.IsBackupItem)
+        {
+            return;
+        }
+
+        SelectedMod = item;
+        await CheckUpdateSelectedMod();
+    }
+
+    [RelayCommand]
+    private void BackupItem(ModManageItem? item)
+    {
+        if (item == null || item.IsBackupItem)
+        {
+            return;
+        }
+
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法执行备份";
+            return;
+        }
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        Directory.CreateDirectory(backupRoot);
+
+        var success = TryBackupMod(item, backupRoot);
+        LoadBackups(modsPath);
+        ApplyTagFilter();
+        Status = success ? $"已备份：{item.DisplayName}" : $"备份失败：{item.DisplayName}";
+    }
+
+    [RelayCommand]
+    private void RestoreItem(ModManageItem? item)
+    {
+        if (item == null || !item.IsBackupItem)
+        {
+            return;
+        }
+
+        if (!TryGetCurrentModsPath(out var modsPath))
+        {
+            Status = "当前实例目录不可用，无法恢复备份";
+            return;
+        }
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        Directory.CreateDirectory(backupRoot);
+        var success = TryRestoreBackup(item, modsPath, backupRoot);
+        ReloadMods();
+        Status = success ? $"已恢复备份：{item.DisplayName}" : $"恢复失败：{item.DisplayName}";
+    }
+
+    [RelayCommand]
+    private async Task DeleteItem(ModManageItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        if (item.IsBackupItem)
+        {
+            var confirmed = await _dialogService.ShowConfirmAsync("删除备份", $"确定删除备份“{item.DisplayName}”吗？");
+            if (!confirmed)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.FullPath) && Directory.Exists(item.FullPath))
+            {
+                Directory.Delete(item.FullPath, true);
+            }
+
+            if (TryGetCurrentModsPath(out var modsPath))
+            {
+                LoadBackups(modsPath);
+            }
+
+            ApplyTagFilter();
+            Status = $"已删除备份：{item.DisplayName}";
+            return;
+        }
+
+        var approveDelete = await _dialogService.ShowConfirmAsync("卸载 Mod", $"确定卸载“{item.DisplayName}”吗？");
+        if (!approveDelete)
+        {
+            return;
+        }
+
+        SelectedMod = item;
+        UninstallSelectedMod();
+    }
+
+    [RelayCommand]
+    private void OpenItemFolder(ModManageItem? item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.FullPath) || !Directory.Exists(item.FullPath))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = item.FullPath,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // optional action
+        }
+    }
+
+    [RelayCommand]
+    private async Task ShowLocalItemDetail(ModManageItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        await _dialogService.ShowLocalModDetailDialogAsync(
+            modName: item.DisplayName,
+            version: item.Version,
+            author: item.Author,
+            description: item.Description,
+            folderPath: item.FullPath,
+            sourceFileName: item.SourceFileName,
+            uniqueId: item.UniqueId,
+            isEnabled: item.IsEnabled,
+            hasUpdate: item.HasUpdate,
+            dependencies: item.DisplayDependencies,
+            onDependencyClick: parameter =>
+            {
+                if (parameter is not ModDependencyDisplayItem dependency)
+                {
+                    return;
+                }
+
+                if (IsBackupTab)
+                {
+                    CurrentModManageTab = ModManagePrimaryTab.Mods;
+                }
+
+                ClickDependencySearch(dependency);
+            },
+            title: item.IsBackupItem ? "备份详情" : "本地 Mod 详情");
+    }
+
+    [RelayCommand]
+    private void ShowOnlineItemDetail(ModManageItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var searchKey = !string.IsNullOrWhiteSpace(item.UniqueId)
+            ? item.UniqueId
+            : item.DisplayName;
+        if (string.IsNullOrWhiteSpace(searchKey))
+        {
+            return;
+        }
+
+        var targetUrl = $"https://www.nexusmods.com/stardewvalley/search/?gsearch={Uri.EscapeDataString(searchKey)}&gsearchtype=mods";
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = targetUrl,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // ignore optional action failure
+        }
+    }
+
+    private static bool TryBackupMod(ModManageItem mod, string backupRoot)
+    {
+        if (string.IsNullOrWhiteSpace(mod.FullPath) || !Directory.Exists(mod.FullPath))
+        {
+            return false;
+        }
+
+        var originalFolderName = Path.GetFileName(mod.FullPath);
+        if (string.IsNullOrWhiteSpace(originalFolderName))
+        {
+            return false;
+        }
+
+        var snapshotName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{SanitizeFileName(originalFolderName)}_{Guid.NewGuid().ToString("N")[..6]}";
+        var snapshotDir = Path.Combine(backupRoot, snapshotName);
+
+        try
+        {
+            CopyDirectory(mod.FullPath, snapshotDir);
+            var record = new ModBackupRecord
+            {
+                OriginalFolderName = originalFolderName,
+                DisplayName = mod.DisplayName,
+                Version = mod.Version,
+                Author = mod.Author,
+                Description = mod.Description,
+                UniqueId = mod.UniqueId,
+                CreatedAt = DateTime.Now
+            };
+
+            var metaPath = Path.Combine(snapshotDir, BackupMetaFileName);
+            File.WriteAllText(metaPath, JsonSerializer.Serialize(record, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryRestoreBackup(ModManageItem backup, string modsPath, string backupRoot)
+    {
+        if (string.IsNullOrWhiteSpace(backup.FullPath) || !Directory.Exists(backup.FullPath))
+        {
+            return false;
+        }
+
+        var targetName = string.IsNullOrWhiteSpace(backup.BackupOriginalFolderName)
+            ? backup.FolderName
+            : backup.BackupOriginalFolderName;
+        if (string.IsNullOrWhiteSpace(targetName))
+        {
+            return false;
+        }
+
+        var targetPath = Path.Combine(modsPath, targetName);
+        try
+        {
+            if (Directory.Exists(targetPath))
+            {
+                var conflictPath = Path.Combine(
+                    backupRoot,
+                    $"conflict_{DateTime.Now:yyyyMMdd_HHmmss}_{SanitizeFileName(targetName)}");
+                Directory.Move(targetPath, conflictPath);
+            }
+
+            CopyDirectory(backup.FullPath, targetPath);
+            var copiedMetaPath = Path.Combine(targetPath, BackupMetaFileName);
+            if (File.Exists(copiedMetaPath))
+            {
+                File.Delete(copiedMetaPath);
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int ImportModsFromLocalSource(string sourcePath, string modsPath, bool sourceIsZip)
+    {
+        var tempRoot = string.Empty;
+
+        try
+        {
+            var root = sourcePath;
+            if (sourceIsZip)
+            {
+                if (!File.Exists(sourcePath))
+                {
+                    return 0;
+                }
+
+                tempRoot = Path.Combine(Path.GetTempPath(), $"SVL_ModImport_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempRoot);
+                ZipFile.ExtractToDirectory(sourcePath, tempRoot, overwriteFiles: true);
+                root = tempRoot;
+            }
+            else if (!Directory.Exists(sourcePath))
+            {
+                return 0;
+            }
+
+            var candidates = CollectLocalImportCandidates(root).ToList();
+            if (candidates.Count == 0)
+            {
+                return 0;
+            }
+
+            var imported = 0;
+            foreach (var candidate in candidates)
+            {
+                if (!Directory.Exists(candidate))
+                {
+                    continue;
+                }
+
+                var folderName = Path.GetFileName(candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (string.IsNullOrWhiteSpace(folderName))
+                {
+                    continue;
+                }
+
+                var targetPath = Path.Combine(modsPath, folderName);
+                if (Directory.Exists(targetPath))
+                {
+                    targetPath = Path.Combine(modsPath, $"{folderName}_local_{DateTime.Now:yyyyMMdd_HHmmss}");
+                }
+
+                CopyDirectory(candidate, targetPath);
+                imported++;
+            }
+
+            return imported;
+        }
+        catch
+        {
+            return 0;
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(tempRoot) && Directory.Exists(tempRoot))
+            {
+                try
+                {
+                    Directory.Delete(tempRoot, true);
+                }
+                catch
+                {
+                    // ignore cleanup failure
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> CollectLocalImportCandidates(string rootPath)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!Directory.Exists(rootPath))
+        {
+            return result;
+        }
+
+        if (File.Exists(Path.Combine(rootPath, "manifest.json")))
+        {
+            result.Add(rootPath);
+        }
+
+        foreach (var path in EnumerateCandidateModDirectories(rootPath))
+        {
+            result.Add(path);
+        }
+
+        return result;
+    }
+
+    private bool TryGetCurrentModsPath(out string modsPath)
+    {
+        var settings = _settingsStore.Load();
+        if (string.IsNullOrWhiteSpace(settings.PreferredInstancePath) || !Directory.Exists(settings.PreferredInstancePath))
+        {
+            modsPath = string.Empty;
+            return false;
+        }
+
+        modsPath = Path.Combine(settings.PreferredInstancePath, "Mods");
+        return true;
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            sb.Append(invalid.Contains(ch) ? '_' : ch);
+        }
+
+        return sb.ToString();
+    }
+
+    private static void CopyDirectory(string sourcePath, string destinationPath)
+    {
+        Directory.CreateDirectory(destinationPath);
+
+        foreach (var filePath in Directory.GetFiles(sourcePath))
+        {
+            var fileName = Path.GetFileName(filePath);
+            File.Copy(filePath, Path.Combine(destinationPath, fileName), overwrite: true);
+        }
+
+        foreach (var directoryPath in Directory.GetDirectories(sourcePath))
+        {
+            var directoryName = Path.GetFileName(directoryPath);
+            CopyDirectory(directoryPath, Path.Combine(destinationPath, directoryName));
+        }
+    }
+
+    [RelayCommand]
     private void ReloadMods()
     {
         foreach (var existingItem in Mods)
         {
             DetachModItem(existingItem);
+        }
+
+        foreach (var backupItem in BackupMods)
+        {
+            DetachModItem(backupItem);
         }
 
         foreach (var panelItem in TagPanelItems)
@@ -1349,13 +3216,20 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         }
 
         Mods.Clear();
+        BackupMods.Clear();
         FilteredMods.Clear();
+        _filteredSource.Clear();
         TagFilters.Clear();
         CustomTagDefinitions.Clear();
         TagPanelItems.Clear();
         SelectedTagFilter = null;
         SelectedCustomTag = null;
         SelectedMod = null;
+        SelectedCount = 0;
+        ShowSelectionActions = false;
+        CurrentPageIndex = 1;
+        TotalPages = 1;
+        TotalFilteredCount = 0;
 
         var settings = _settingsStore.Load();
         if (string.IsNullOrWhiteSpace(settings.PreferredInstancePath) || !Directory.Exists(settings.PreferredInstancePath))
@@ -1368,12 +3242,14 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         var modsPath = Path.Combine(settings.PreferredInstancePath, "Mods");
         Directory.CreateDirectory(modsPath);
 
-        var modDirectories = Directory.GetDirectories(modsPath)
+        var dependencyEntriesByPath = new Dictionary<string, List<(string UniqueId, string MinimumVersion, bool IsRequired, string Note)>>(StringComparer.OrdinalIgnoreCase);
+
+        var modDirectories = EnumerateCandidateModDirectories(modsPath)
             .OrderBy(path =>
             {
                 var folderName = Path.GetFileName(path);
                 return !string.IsNullOrWhiteSpace(folderName) &&
-                       folderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
+                      IsDisabledFolderName(folderName)
                     ? 1
                     : 0;
             })
@@ -1385,9 +3261,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                     return string.Empty;
                 }
 
-                return folderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
-                    ? folderName[..^".disabled".Length]
-                    : folderName;
+                return NormalizeFolderName(folderName);
             }, StringComparer.OrdinalIgnoreCase);
 
         foreach (var modDirectory in modDirectories)
@@ -1398,10 +3272,8 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 continue;
             }
 
-            var isEnabled = !folderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
-            var actualName = isEnabled
-                ? folderName
-                : folderName[..^".disabled".Length];
+            var isEnabled = !IsDisabledFolderName(folderName);
+            var actualName = NormalizeFolderName(folderName);
 
             var manifestPath = Path.Combine(modDirectory, "manifest.json");
             var displayName = actualName;
@@ -1409,35 +3281,29 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             var author = string.Empty;
             var description = string.Empty;
             var uniqueId = string.Empty;
+            var sourceFileName = string.Empty;
+            var updateSource = string.Empty;
+            var curseforgeProjectId = string.Empty;
+            var nexusModsProjectId = string.Empty;
+            var localizationUpdatedAt = string.Empty;
+            var dependencyEntries = new List<(string UniqueId, string MinimumVersion, bool IsRequired, string Note)>();
 
             if (File.Exists(manifestPath))
             {
                 try
                 {
-                    using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath));
-                    if (doc.RootElement.TryGetProperty("Name", out var nameElement))
+                    using var doc = TryReadManifestDocument(manifestPath);
+                    if (doc != null)
                     {
-                        displayName = nameElement.GetString() ?? displayName;
-                    }
+                        var manifestRoot = doc.RootElement;
+                        displayName = FirstNonEmpty(GetJsonStringFlexibleByCandidates(manifestRoot, "Name"), displayName);
+                        uniqueId = FirstNonEmpty(GetJsonStringFlexibleByCandidates(manifestRoot, "UniqueID", "UniqueId"), uniqueId);
+                        version = FirstNonEmpty(GetJsonStringFlexibleByCandidates(manifestRoot, "Version"), version);
+                        author = FirstNonEmpty(GetJsonStringFlexibleByCandidates(manifestRoot, "Author"), author);
+                        description = FirstNonEmpty(GetJsonStringFlexibleByCandidates(manifestRoot, "Description"), description);
 
-                    if (doc.RootElement.TryGetProperty("UniqueID", out var uniqueIdElement))
-                    {
-                        uniqueId = uniqueIdElement.GetString() ?? uniqueId;
-                    }
-
-                    if (doc.RootElement.TryGetProperty("Version", out var versionElement))
-                    {
-                        version = versionElement.GetString() ?? version;
-                    }
-                    
-                    if (doc.RootElement.TryGetProperty("Author", out var authorElement))
-                    {
-                        author = authorElement.GetString() ?? author;
-                    }
-                    
-                    if (doc.RootElement.TryGetProperty("Description", out var descriptionElement))
-                    {
-                        description = descriptionElement.GetString() ?? description;
+                        ParseModDependencies(manifestRoot, dependencyEntries);
+                        TryResolveSourceFromUpdateKeys(manifestRoot, ref curseforgeProjectId, ref nexusModsProjectId, ref updateSource);
                     }
                 }
                 catch
@@ -1446,16 +3312,35 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 }
             }
 
+            var sourceCredential = TryReadSourceCredential(modDirectory);
+            ApplySourceCredentialToModItem(
+                sourceCredential,
+                ref displayName,
+                ref description,
+                ref version,
+                ref sourceFileName,
+                ref updateSource,
+                ref curseforgeProjectId,
+                ref nexusModsProjectId,
+                ref localizationUpdatedAt);
+
+            dependencyEntriesByPath[modDirectory] = dependencyEntries;
+
             var item = new ModManageItem
             {
                 DisplayName = displayName,
                 Version = version,
                 Author = author,
                 Description = description,
-                DirectoryName = folderName,
+                DirectoryName = actualName,
                 FolderName = actualName,
                 FullPath = modDirectory,
                 UniqueId = uniqueId,
+                SourceFileName = sourceFileName,
+                CurseforgeProjectId = curseforgeProjectId,
+                NexusModsProjectId = nexusModsProjectId,
+                UpdateSource = updateSource,
+                LocalizationUpdatedAt = localizationUpdatedAt,
                 IsEnabled = isEnabled,
                 UpdateStatus = "未检查"
             };
@@ -1469,13 +3354,1152 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             Mods.Add(item);
         }
 
+        BuildDisplayDependenciesForMods(dependencyEntriesByPath);
+
         LoadAndApplyTags(modsPath);
+        LoadBackups(modsPath);
         ApplyTagFilter();
+        SyncExportModItemsFromCurrentMods();
 
         Status = Mods.Count == 0
             ? "当前实例 Mods 目录为空"
             : $"已加载 {Mods.Count} 个 Mod（启用 {Mods.Count(item => item.IsEnabled)} / 禁用 {Mods.Count(item => !item.IsEnabled)}）";
         RefreshModManageHint();
+    }
+
+    private void ReloadExportModItems()
+    {
+        if (Mods.Count == 0 && TryGetCurrentModsPath(out var modsPath) && Directory.Exists(modsPath))
+        {
+            ReloadMods();
+            return;
+        }
+
+        SyncExportModItemsFromCurrentMods();
+    }
+
+    private void SyncExportModItemsFromCurrentMods()
+    {
+        foreach (var existing in ExportModItems)
+        {
+            DetachExportModItem(existing);
+        }
+
+        ExportModItems.Clear();
+
+        var sourceMods = Mods
+            .Where(mod => !mod.IsBackupItem)
+            .Where(mod => !IsSmapiBundledModForExport(mod.UniqueId, mod.DirectoryName))
+            .OrderBy(mod => mod.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var mod in sourceMods)
+        {
+            var sourceCredential = TryReadSourceCredential(mod.FullPath);
+            var sourcePlatform = string.Empty;
+            var sourceProjectId = string.Empty;
+            var sourceFileId = string.Empty;
+
+            if (sourceCredential != null)
+            {
+                sourcePlatform = NormalizePlatform(sourceCredential.Platform);
+                sourceProjectId = NormalizeProjectId(sourceCredential.ProjectId);
+                sourceFileId = FirstNonEmpty(sourceCredential.FileId);
+            }
+
+            sourcePlatform = FirstNonEmpty(sourcePlatform, NormalizePlatform(mod.UpdateSource));
+            sourceProjectId = FirstNonEmpty(sourceProjectId,
+                NormalizeProjectId(mod.CurseforgeProjectId),
+                NormalizeProjectId(mod.NexusModsProjectId));
+
+            var exportItem = new ExportModSelectionItem
+            {
+                Name = FirstNonEmpty(mod.DisplayName, mod.DirectoryName),
+                UniqueId = mod.UniqueId,
+                Version = mod.Version,
+                Author = mod.Author,
+                ModPath = mod.FullPath,
+                DirectoryName = mod.DirectoryName,
+                IsEnabled = mod.IsEnabled,
+                IsSelected = mod.IsEnabled,
+                SourcePlatform = string.IsNullOrWhiteSpace(sourcePlatform) ? "未知" : sourcePlatform,
+                SourceProjectId = sourceProjectId,
+                SourceFileId = sourceFileId
+            };
+
+            AttachExportModItem(exportItem);
+            ExportModItems.Add(exportItem);
+        }
+
+        ExportStatusMessage = ExportModItems.Count == 0
+            ? "当前实例没有可导出的 Mod"
+            : $"导出列表已准备，共 {ExportModItems.Count} 个 Mod";
+
+        OnPropertyChanged(nameof(SelectedExportModCount));
+        OnPropertyChanged(nameof(TotalExportModCount));
+        OnPropertyChanged(nameof(CanStartExport));
+        OnPropertyChanged(nameof(ExportProgressText));
+    }
+
+    private static bool IsSmapiBundledModForExport(string? uniqueId, string? folderName)
+    {
+        if (string.Equals(uniqueId, "SMAPI.ConsoleCommands", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uniqueId, "SMAPI.SaveBackup", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uniqueId, "ConsoleCommands", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uniqueId, "SaveBackup", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(folderName, "ConsoleCommands", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(folderName, "SaveBackup", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void AttachExportModItem(ExportModSelectionItem item)
+    {
+        item.PropertyChanged += HandleExportModItemPropertyChanged;
+    }
+
+    private void DetachExportModItem(ExportModSelectionItem item)
+    {
+        item.PropertyChanged -= HandleExportModItemPropertyChanged;
+    }
+
+    private void HandleExportModItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(ExportModSelectionItem.IsSelected), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(SelectedExportModCount));
+        OnPropertyChanged(nameof(CanStartExport));
+        OnPropertyChanged(nameof(ExportProgressText));
+    }
+
+    private void BuildDisplayDependenciesForMods(IReadOnlyDictionary<string, List<(string UniqueId, string MinimumVersion, bool IsRequired, string Note)>> dependencyEntriesByPath)
+    {
+        var installedByUniqueId = Mods
+            .Where(mod => !string.IsNullOrWhiteSpace(mod.UniqueId))
+            .GroupBy(mod => mod.UniqueId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var mod in Mods)
+        {
+            mod.DisplayDependencies.Clear();
+
+            if (string.IsNullOrWhiteSpace(mod.FullPath) ||
+                !dependencyEntriesByPath.TryGetValue(mod.FullPath, out var dependencyEntries) ||
+                dependencyEntries == null ||
+                dependencyEntries.Count == 0)
+            {
+                continue;
+            }
+
+            var distinctEntries = dependencyEntries
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.UniqueId))
+                .GroupBy(entry => entry.UniqueId, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            foreach (var entry in distinctEntries)
+            {
+                mod.DisplayDependencies.Add(CreateDependencyLinkForModList(
+                    entry.UniqueId,
+                    entry.MinimumVersion,
+                    installedByUniqueId,
+                    entry.Note,
+                    entry.IsRequired));
+            }
+        }
+    }
+
+    private static void ParseModDependencies(JsonElement manifestRoot, List<(string UniqueId, string MinimumVersion, bool IsRequired, string Note)> dependencies)
+    {
+        if (manifestRoot.TryGetProperty("ContentPackFor", out var contentPackForElement) &&
+            contentPackForElement.ValueKind == JsonValueKind.Object)
+        {
+            var contentPackForUniqueId = GetJsonStringByCandidates(contentPackForElement, "UniqueID", "UniqueId");
+            if (!string.IsNullOrWhiteSpace(contentPackForUniqueId))
+            {
+                var contentPackForMinVersion = GetJsonStringByCandidates(contentPackForElement, "MinimumVersion");
+                dependencies.Add((contentPackForUniqueId.Trim(), contentPackForMinVersion, true, "内容包前置"));
+            }
+        }
+
+        if (!manifestRoot.TryGetProperty("Dependencies", out var dependenciesElement) ||
+            dependenciesElement.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var dependency in dependenciesElement.EnumerateArray())
+        {
+            if (dependency.ValueKind == JsonValueKind.String)
+            {
+                var dependencyUniqueId = dependency.GetString();
+                if (!string.IsNullOrWhiteSpace(dependencyUniqueId))
+                {
+                    dependencies.Add((dependencyUniqueId.Trim(), string.Empty, true, string.Empty));
+                }
+
+                continue;
+            }
+
+            if (dependency.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var dependencyId = GetJsonStringByCandidates(dependency, "UniqueID", "UniqueId");
+            if (string.IsNullOrWhiteSpace(dependencyId))
+            {
+                continue;
+            }
+
+            var isRequired = GetJsonBoolByCandidates(dependency, "IsRequired") ?? true;
+            var minimumVersion = GetJsonStringByCandidates(dependency, "MinimumVersion");
+            dependencies.Add((dependencyId.Trim(), minimumVersion, isRequired, isRequired ? string.Empty : "可选前置"));
+        }
+    }
+
+    private static string GetJsonStringByCandidates(JsonElement element, params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (element.TryGetProperty(candidate, out var propertyElement) && propertyElement.ValueKind == JsonValueKind.String)
+            {
+                return propertyElement.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool? GetJsonBoolByCandidates(JsonElement element, params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!element.TryGetProperty(candidate, out var propertyElement))
+            {
+                continue;
+            }
+
+            if (propertyElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return propertyElement.GetBoolean();
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonDocument? TryReadManifestDocument(string manifestPath)
+    {
+        if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath))
+        {
+            return null;
+        }
+
+        var bytes = File.ReadAllBytes(manifestPath);
+        var options = new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip
+        };
+
+        return JsonDocument.Parse(bytes, options);
+    }
+
+    private static string GetJsonStringFlexibleByCandidates(JsonElement element, params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!element.TryGetProperty(candidate, out var propertyElement))
+            {
+                continue;
+            }
+
+            switch (propertyElement.ValueKind)
+            {
+                case JsonValueKind.String:
+                    return propertyElement.GetString() ?? string.Empty;
+                case JsonValueKind.Number:
+                case JsonValueKind.True:
+                case JsonValueKind.False:
+                    return propertyElement.ToString();
+                case JsonValueKind.Array:
+                {
+                    var parts = propertyElement
+                        .EnumerateArray()
+                        .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() : item.ToString())
+                        .Where(item => !string.IsNullOrWhiteSpace(item))
+                        .ToList();
+                    if (parts.Count > 0)
+                    {
+                        return string.Join(", ", parts!);
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static void TryResolveSourceFromUpdateKeys(
+        JsonElement manifestRoot,
+        ref string curseforgeProjectId,
+        ref string nexusModsProjectId,
+        ref string updateSource)
+    {
+        if (!manifestRoot.TryGetProperty("UpdateKeys", out var updateKeysElement) || updateKeysElement.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var updateKeyElement in updateKeysElement.EnumerateArray())
+        {
+            if (updateKeyElement.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var updateKey = updateKeyElement.GetString();
+            if (string.IsNullOrWhiteSpace(updateKey))
+            {
+                continue;
+            }
+
+            var parts = updateKey.Split(new[] { ':' }, 2);
+            if (parts.Length != 2)
+            {
+                continue;
+            }
+
+            var source = parts[0].Trim();
+            var identifier = parts[1].Trim();
+            if (string.IsNullOrWhiteSpace(identifier))
+            {
+                continue;
+            }
+
+            if (string.Equals(source, "curseforge", StringComparison.OrdinalIgnoreCase))
+            {
+                var normalized = NormalizeProjectId(identifier);
+                curseforgeProjectId = FirstNonEmpty(normalized, identifier, curseforgeProjectId);
+                updateSource = "Curseforge";
+                continue;
+            }
+
+            if (string.Equals(source, "nexus", StringComparison.OrdinalIgnoreCase))
+            {
+                var normalized = NormalizeProjectId(identifier);
+                nexusModsProjectId = FirstNonEmpty(normalized, identifier, nexusModsProjectId);
+                if (string.IsNullOrWhiteSpace(updateSource))
+                {
+                    updateSource = "NexusMods";
+                }
+            }
+        }
+    }
+
+    private static LocalSourceMetadata? TryReadSourceCredential(string modDir)
+    {
+        if (string.IsNullOrWhiteSpace(modDir) || !Directory.Exists(modDir))
+        {
+            return null;
+        }
+
+        var credential = TryReadSvlSourceMetadata(modDir);
+        if (credential != null)
+        {
+            return credential;
+        }
+
+        return TryReadLegacyDotSource(modDir);
+    }
+
+    private static LocalSourceMetadata? TryReadSvlSourceMetadata(string modDir)
+    {
+        try
+        {
+            var path = Path.Combine(modDir, "svl-source.json");
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            return JsonSerializer.Deserialize<LocalSourceMetadata>(File.ReadAllText(path), s_sourceJsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static LocalSourceMetadata? TryReadLegacyDotSource(string modDir)
+    {
+        try
+        {
+            var path = Path.Combine(modDir, ".source.json");
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            var source = GetJsonStringFlexibleByCandidates(root, "source", "platform");
+            var collection = GetJsonStringFlexibleByCandidates(root, "collection", "projectId", "modId");
+
+            if (string.IsNullOrWhiteSpace(source) && string.IsNullOrWhiteSpace(collection))
+            {
+                return null;
+            }
+
+            var normalizedSource = string.Equals(source, "nexus", StringComparison.OrdinalIgnoreCase)
+                ? "NexusMods"
+                : source;
+
+            return new LocalSourceMetadata
+            {
+                Platform = string.IsNullOrWhiteSpace(normalizedSource) ? "NexusMods" : normalizedSource,
+                ProjectId = collection,
+                FileId = GetJsonStringFlexibleByCandidates(root, "file", "fileId")
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ApplySourceCredentialToModItem(
+        LocalSourceMetadata? sourceCredential,
+        ref string displayName,
+        ref string description,
+        ref string version,
+        ref string sourceFileName,
+        ref string updateSource,
+        ref string curseforgeProjectId,
+        ref string nexusModsProjectId,
+        ref string localizationUpdatedAt)
+    {
+        if (sourceCredential == null)
+        {
+            return;
+        }
+
+        var normalizedPlatform = NormalizePlatform(sourceCredential.Platform);
+        if (string.Equals(normalizedPlatform, "Curseforge", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalized = NormalizeProjectId(sourceCredential.ProjectId);
+            curseforgeProjectId = FirstNonEmpty(normalized, sourceCredential.ProjectId, curseforgeProjectId);
+            updateSource = "Curseforge";
+        }
+        else if (string.Equals(normalizedPlatform, "NexusMods", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalized = NormalizeProjectId(sourceCredential.ProjectId);
+            nexusModsProjectId = FirstNonEmpty(normalized, sourceCredential.ProjectId, nexusModsProjectId);
+            if (string.IsNullOrWhiteSpace(updateSource))
+            {
+                updateSource = "NexusMods";
+            }
+        }
+
+        sourceFileName = FirstNonEmpty(sourceFileName, sourceCredential.FileName);
+        version = IsUnknownVersion(version)
+            ? FirstNonEmpty(ExtractVersionFromText(sourceCredential.FileName), version)
+            : version;
+        displayName = FirstNonEmpty(sourceCredential.Localization?.NameZhCn, displayName, sourceCredential.ModName);
+        description = FirstNonEmpty(sourceCredential.Localization?.DescriptionZhCn, description);
+        localizationUpdatedAt = FirstNonEmpty(sourceCredential.Localization?.UpdatedAt, localizationUpdatedAt);
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsUnknownVersion(string version)
+    {
+        return string.IsNullOrWhiteSpace(version) ||
+               string.Equals(version, "未知版本", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExtractVersionFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var match = Regex.Match(text, @"\d+(?:\.\d+){1,3}");
+        return match.Success ? match.Value : string.Empty;
+    }
+
+    private static string NormalizeProjectId(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var match = Regex.Match(raw, @"(\d+)(?!.*\d)");
+        return match.Success ? match.Groups[1].Value : raw.Trim();
+    }
+
+    private static string NormalizePlatform(string? platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            return string.Empty;
+        }
+
+        if (string.Equals(platform, "Curseforge", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Curseforge";
+        }
+
+        if (string.Equals(platform, "NexusMods", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(platform, "Nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            return "NexusMods";
+        }
+
+        return platform.Trim();
+    }
+
+    private async Task<LocalModUpdateCheckResult?> CheckUpdateForModAsync(ModManageItem mod)
+    {
+        if (mod == null || string.IsNullOrWhiteSpace(mod.FullPath) || !Directory.Exists(mod.FullPath))
+        {
+            return null;
+        }
+
+        var sourceInfo = TryGetLocalizationSourceInfo(mod);
+        if (!sourceInfo.HasValue)
+        {
+            return null;
+        }
+
+        var normalizedPlatform = NormalizePlatform(sourceInfo.Value.Platform);
+        var normalizedProjectId = NormalizeProjectId(sourceInfo.Value.ProjectId);
+        if (string.IsNullOrWhiteSpace(normalizedProjectId))
+        {
+            return null;
+        }
+
+        if (string.Equals(normalizedPlatform, "NexusMods", StringComparison.OrdinalIgnoreCase))
+        {
+            return await CheckNexusUpdateAsync(mod, normalizedProjectId);
+        }
+
+        if (string.Equals(normalizedPlatform, "Curseforge", StringComparison.OrdinalIgnoreCase))
+        {
+            return await CheckCurseforgeUpdateAsync(mod, normalizedProjectId);
+        }
+
+        return null;
+    }
+
+    private async Task<LocalModUpdateCheckResult> CheckNexusUpdateAsync(ModManageItem mod, string projectId)
+    {
+        var result = new LocalModUpdateCheckResult
+        {
+            UpdateSource = "NexusMods",
+            NexusModsProjectId = projectId
+        };
+
+        var settings = _settingsStore.Load();
+        if (!HasNexusCredential(settings))
+        {
+            return result;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"https://api.nexusmods.com/v1/games/{NexusGameDomain}/mods/{projectId}/files.json");
+            ApplyNexusHeaders(request, settings);
+
+            using var response = await s_modNetworkHttp.SendAsync(request);
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                result.IsTokenExpired = true;
+                return result;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return result;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+            if (!doc.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            JsonElement? latest = null;
+            long latestTimestamp = -1;
+            long latestFileId = -1;
+
+            foreach (var file in files.EnumerateArray())
+            {
+                var timestamp = GetJsonLongByCandidates(file, "uploaded_timestamp", "uploadedTimestamp");
+                var fileId = GetJsonLongByCandidates(file, "file_id", "fileId", "id");
+                var candidateScore = timestamp > 0 ? timestamp : fileId;
+                var currentScore = latestTimestamp > 0 ? latestTimestamp : latestFileId;
+                if (latest == null || candidateScore > currentScore)
+                {
+                    latest = file;
+                    latestTimestamp = timestamp;
+                    latestFileId = fileId;
+                }
+            }
+
+            if (latest.HasValue)
+            {
+                var remoteVersion = FirstNonEmpty(
+                    GetJsonStringFlexibleByCandidates(latest.Value, "version"),
+                    ExtractVersionFromText(GetJsonStringFlexibleByCandidates(latest.Value, "file_name", "fileName", "name")));
+                result.LatestVersion = remoteVersion;
+                result.HasUpdate = IsRemoteVersionNewer(mod.Version, remoteVersion);
+                result.IsChecked = true;
+            }
+
+            return result;
+        }
+        catch
+        {
+            return result;
+        }
+    }
+
+    private static async Task<LocalModUpdateCheckResult> CheckCurseforgeUpdateAsync(ModManageItem mod, string projectId)
+    {
+        var result = new LocalModUpdateCheckResult
+        {
+            UpdateSource = "Curseforge",
+            CurseforgeProjectId = projectId
+        };
+
+        try
+        {
+            using var response = await s_modNetworkHttp.GetAsync($"https://api.curse.tools/v1/cf/mods/{projectId}/files?index=0&pageSize=30");
+            if (!response.IsSuccessStatusCode)
+            {
+                return result;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+            if (!doc.RootElement.TryGetProperty("data", out var files) || files.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            JsonElement? latest = null;
+            long latestFileId = -1;
+            foreach (var file in files.EnumerateArray())
+            {
+                var fileId = GetJsonLongByCandidates(file, "id", "fileId");
+                if (latest == null || fileId > latestFileId)
+                {
+                    latest = file;
+                    latestFileId = fileId;
+                }
+            }
+
+            if (latest.HasValue)
+            {
+                var remoteVersion = FirstNonEmpty(
+                    ExtractVersionFromText(GetJsonStringFlexibleByCandidates(latest.Value, "displayName", "display_name")),
+                    ExtractVersionFromText(GetJsonStringFlexibleByCandidates(latest.Value, "fileName", "file_name", "name")));
+                result.LatestVersion = remoteVersion;
+                result.HasUpdate = IsRemoteVersionNewer(mod.Version, remoteVersion);
+                result.IsChecked = true;
+            }
+
+            return result;
+        }
+        catch
+        {
+            return result;
+        }
+    }
+
+    private static bool IsRemoteVersionNewer(string localVersion, string remoteVersion)
+    {
+        if (string.IsNullOrWhiteSpace(remoteVersion))
+        {
+            return false;
+        }
+
+        if (IsUnknownVersion(localVersion))
+        {
+            return true;
+        }
+
+        if (TryParseComparableVersion(remoteVersion, out var remoteParsed) &&
+            TryParseComparableVersion(localVersion, out var localParsed))
+        {
+            return remoteParsed > localParsed;
+        }
+
+        return !string.Equals(
+            ExtractVersionFromText(remoteVersion),
+            ExtractVersionFromText(localVersion),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseComparableVersion(string? rawVersion, out Version parsed)
+    {
+        parsed = new Version(0, 0);
+        var candidate = FirstNonEmpty(ExtractVersionFromText(rawVersion), rawVersion);
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        if (!Version.TryParse(candidate, out var parsedCandidate) || parsedCandidate == null)
+        {
+            return false;
+        }
+
+        parsed = parsedCandidate;
+        return true;
+    }
+
+    private static string BuildUpdateStatusText(LocalModUpdateCheckResult result)
+    {
+        if (result.IsTokenExpired)
+        {
+            return "Nexus 登录已过期";
+        }
+
+        if (!result.IsChecked)
+        {
+            return string.Equals(result.UpdateSource, "NexusMods", StringComparison.OrdinalIgnoreCase)
+                ? "需登录 Nexus"
+                : "检测失败";
+        }
+
+        if (result.HasUpdate)
+        {
+            return string.IsNullOrWhiteSpace(result.LatestVersion)
+                ? "可更新"
+                : $"可更新 -> {result.LatestVersion}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.UpdateSource) &&
+            !string.Equals(result.UpdateSource, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"已检查({result.UpdateSource}) {DateTime.Now:HH:mm}";
+        }
+
+        return $"已检查 {DateTime.Now:HH:mm}";
+    }
+
+    private bool HasAnySourceForLocalization(ModManageItem mod)
+    {
+        if (mod == null || mod.IsBackupItem)
+        {
+            return false;
+        }
+
+        if (TryReadSourceCredential(mod.FullPath) != null)
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(mod.CurseforgeProjectId) || !string.IsNullOrWhiteSpace(mod.NexusModsProjectId))
+        {
+            return true;
+        }
+
+        var manifestPath = Path.Combine(mod.FullPath ?? string.Empty, "manifest.json");
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                using var doc = TryReadManifestDocument(manifestPath);
+                if (doc != null)
+                {
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("UpdateKeys", out var updateKeysElement) && updateKeysElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var updateKeyElement in updateKeysElement.EnumerateArray())
+                        {
+                            if (updateKeyElement.ValueKind != JsonValueKind.String)
+                            {
+                                continue;
+                            }
+
+                            var updateKey = updateKeyElement.GetString();
+                            if (string.IsNullOrWhiteSpace(updateKey))
+                            {
+                                continue;
+                            }
+
+                            if (updateKey.StartsWith("curseforge:", StringComparison.OrdinalIgnoreCase) ||
+                                updateKey.StartsWith("nexus:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore malformed manifest
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(mod.UniqueId);
+    }
+
+    private (string Platform, string ProjectId)? TryGetLocalizationSourceInfo(ModManageItem mod)
+    {
+        if (mod == null || string.IsNullOrWhiteSpace(mod.FullPath))
+        {
+            return null;
+        }
+
+        var credential = TryReadSourceCredential(mod.FullPath);
+        if (credential != null && !string.IsNullOrWhiteSpace(credential.Platform) && !string.IsNullOrWhiteSpace(credential.ProjectId))
+        {
+            return (NormalizePlatform(credential.Platform), NormalizeProjectId(credential.ProjectId));
+        }
+
+        var manifestPath = Path.Combine(mod.FullPath, "manifest.json");
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                using var doc = TryReadManifestDocument(manifestPath);
+                if (doc != null)
+                {
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("UpdateKeys", out var updateKeysElement) && updateKeysElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var updateKeyElement in updateKeysElement.EnumerateArray())
+                        {
+                            if (updateKeyElement.ValueKind != JsonValueKind.String)
+                            {
+                                continue;
+                            }
+
+                            var updateKey = updateKeyElement.GetString();
+                            if (string.IsNullOrWhiteSpace(updateKey))
+                            {
+                                continue;
+                            }
+
+                            var parts = updateKey.Split(new[] { ':' }, 2);
+                            if (parts.Length != 2)
+                            {
+                                continue;
+                            }
+
+                            var source = NormalizePlatform(parts[0]);
+                            var id = NormalizeProjectId(parts[1]);
+                            if ((string.Equals(source, "Curseforge", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(source, "NexusMods", StringComparison.OrdinalIgnoreCase)) &&
+                                !string.IsNullOrWhiteSpace(id))
+                            {
+                                return (source, id);
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore malformed manifest
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(mod.CurseforgeProjectId))
+        {
+            return ("Curseforge", NormalizeProjectId(mod.CurseforgeProjectId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(mod.NexusModsProjectId))
+        {
+            return ("NexusMods", NormalizeProjectId(mod.NexusModsProjectId));
+        }
+
+        return null;
+    }
+
+    private static async Task<LocalCommunityLocalizationEntry?> TryFetchLocalizationEntryAsync(
+        (string Platform, string ProjectId)? sourceInfo,
+        string? uniqueId)
+    {
+        if (sourceInfo.HasValue)
+        {
+            var pathBySource = BuildCommunityLocalizationRelativePath(sourceInfo.Value.Platform, sourceInfo.Value.ProjectId);
+            if (!string.IsNullOrWhiteSpace(pathBySource))
+            {
+                var bySource = await FetchCommunityLocalizationByPathAsync(pathBySource);
+                if (bySource != null)
+                {
+                    return bySource;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(uniqueId))
+        {
+            var pathByUniqueId = BuildCommunityLocalizationRelativePath("UniqueID", uniqueId);
+            return await FetchCommunityLocalizationByPathAsync(pathByUniqueId);
+        }
+
+        return null;
+    }
+
+    private static string BuildCommunityLocalizationRelativePath(string platform, string id)
+    {
+        var normalizedPlatform = NormalizeCommunityLocalizationPlatform(platform);
+        var normalizedId = NormalizeCommunityLocalizationId(id);
+        if (string.IsNullOrWhiteSpace(normalizedPlatform) || string.IsNullOrWhiteSpace(normalizedId))
+        {
+            return string.Empty;
+        }
+
+        if (string.Equals(normalizedPlatform, "NexusMods", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalizedPlatform, "Curseforge", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalizedPlatform, "UniqueID", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Mods/{normalizedPlatform}/{normalizedId}.json";
+        }
+
+        return string.Empty;
+    }
+
+    private static async Task<LocalCommunityLocalizationEntry?> FetchCommunityLocalizationByPathAsync(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+
+        var normalizedPath = relativePath.Replace('\\', '/');
+        var urls = new[]
+        {
+            $"https://raw.githubusercontent.com/panda-lsy/StardewValley-Community-Localization/main/{normalizedPath}",
+            $"https://gitee.com/mc_shengxia/StardewValley-Community-Localization/raw/main/{normalizedPath}"
+        };
+
+        foreach (var url in urls)
+        {
+            try
+            {
+                using var response = await s_modNetworkHttp.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    continue;
+                }
+
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                var entry = await JsonSerializer.DeserializeAsync<LocalCommunityLocalizationEntry>(stream, s_sourceJsonOptions);
+                if (entry != null)
+                {
+                    return entry;
+                }
+            }
+            catch
+            {
+                // ignore provider failures
+            }
+        }
+
+        return null;
+    }
+
+    private static string NormalizeCommunityLocalizationPlatform(string? platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            return string.Empty;
+        }
+
+        if (string.Equals(platform, "Nexus", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(platform, "NexusMods", StringComparison.OrdinalIgnoreCase))
+        {
+            return "NexusMods";
+        }
+
+        if (string.Equals(platform, "Curseforge", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Curseforge";
+        }
+
+        if (string.Equals(platform, "UniqueID", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(platform, "LocalUniqueID", StringComparison.OrdinalIgnoreCase))
+        {
+            return "UniqueID";
+        }
+
+        return platform.Trim();
+    }
+
+    private static string NormalizeCommunityLocalizationId(string? id)
+    {
+        return string.IsNullOrWhiteSpace(id) ? string.Empty : id.Trim();
+    }
+
+    private static bool ShouldApplyLocalization(ModManageItem mod, LocalCommunityLocalizationEntry localization)
+    {
+        if (mod == null || localization == null)
+        {
+            return false;
+        }
+
+        var remoteUpdatedAt = ParseUpdatedAt(localization.Meta?.UpdatedAt);
+        var localUpdatedAt = ParseUpdatedAt(mod.LocalizationUpdatedAt);
+
+        if (!remoteUpdatedAt.HasValue)
+        {
+            return string.IsNullOrWhiteSpace(mod.LocalizationUpdatedAt);
+        }
+
+        if (!localUpdatedAt.HasValue)
+        {
+            return true;
+        }
+
+        return remoteUpdatedAt.Value > localUpdatedAt.Value;
+    }
+
+    private static DateTimeOffset? ParseUpdatedAt(string? updatedAt)
+    {
+        if (string.IsNullOrWhiteSpace(updatedAt))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(updatedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private async Task<bool> ApplyLocalizationEntryToModAsync(
+        ModManageItem mod,
+        LocalCommunityLocalizationEntry localization,
+        (string Platform, string ProjectId)? sourceInfo)
+    {
+        if (mod == null || localization == null || string.IsNullOrWhiteSpace(mod.FullPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var platform = sourceInfo?.Platform ?? NormalizeCommunityLocalizationPlatform(localization.Platform);
+            var projectId = sourceInfo?.ProjectId ?? NormalizeCommunityLocalizationId(localization.Id);
+
+            var credential = TryReadSourceCredential(mod.FullPath) ?? new LocalSourceMetadata();
+            credential.Platform = FirstNonEmpty(platform, credential.Platform);
+            credential.ProjectId = FirstNonEmpty(projectId, credential.ProjectId);
+            credential.ModName = FirstNonEmpty(credential.ModName, mod.DisplayName);
+            credential.Localization = new LocalSourceLocalization
+            {
+                EntityType = FirstNonEmpty(localization.EntityType, "mod"),
+                Platform = FirstNonEmpty(localization.Platform, platform),
+                Id = FirstNonEmpty(localization.Id, projectId),
+                NameZhCn = localization.Name?.ZhCn ?? string.Empty,
+                NameSource = localization.Name?.Source ?? string.Empty,
+                DescriptionZhCn = localization.Description?.ZhCn ?? string.Empty,
+                DescriptionSource = localization.Description?.Source ?? string.Empty,
+                SourceUrl = localization.Meta?.SourceUrl ?? string.Empty,
+                UpdatedAt = localization.Meta?.UpdatedAt ?? string.Empty,
+                Contributor = localization.Meta?.Contributor ?? string.Empty
+            };
+
+            if (!WriteSourceCredential(mod.FullPath, credential))
+            {
+                return false;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                mod.DisplayName = FirstNonEmpty(localization.Name?.ZhCn, mod.DisplayName);
+                mod.Description = FirstNonEmpty(localization.Description?.ZhCn, mod.Description);
+                mod.LocalizationUpdatedAt = credential.Localization?.UpdatedAt ?? mod.LocalizationUpdatedAt;
+
+                var normalized = NormalizePlatform(credential.Platform);
+                if (string.Equals(normalized, "Curseforge", StringComparison.OrdinalIgnoreCase))
+                {
+                    mod.CurseforgeProjectId = FirstNonEmpty(NormalizeProjectId(credential.ProjectId), mod.CurseforgeProjectId);
+                    mod.UpdateSource = "Curseforge";
+                }
+                else if (string.Equals(normalized, "NexusMods", StringComparison.OrdinalIgnoreCase))
+                {
+                    mod.NexusModsProjectId = FirstNonEmpty(NormalizeProjectId(credential.ProjectId), mod.NexusModsProjectId);
+                    mod.UpdateSource = "NexusMods";
+                }
+            });
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static ModDependencyDisplayItem CreateDependencyLinkForModList(
+        string uniqueId,
+        string minimumVersion,
+        IReadOnlyDictionary<string, ModManageItem> installedByUniqueId,
+        string note,
+        bool isRequired = true)
+    {
+        installedByUniqueId.TryGetValue(uniqueId, out var installedMod);
+
+        return new ModDependencyDisplayItem
+        {
+            UniqueId = uniqueId,
+            DisplayName = installedMod?.DisplayName ?? SimplifyUniqueIdForDisplay(uniqueId),
+            MinimumVersion = minimumVersion ?? string.Empty,
+            IsRequired = isRequired,
+            IsInstalled = installedMod != null,
+            IsInstalledAndEnabled = installedMod?.IsEnabled == true,
+            IsInstalledButDisabled = installedMod != null && !installedMod.IsEnabled,
+            InstalledModId = installedMod?.UniqueId ?? string.Empty,
+            InstalledModName = installedMod?.DisplayName ?? string.Empty,
+            Note = note
+        };
+    }
+
+    private static string SimplifyUniqueIdForDisplay(string uniqueId)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueId))
+        {
+            return string.Empty;
+        }
+
+        var parts = uniqueId.Split('.');
+        return parts.Length == 0 ? uniqueId : parts[^1];
     }
 
     private void LoadAndApplyTags(string modsPath)
@@ -1493,6 +4517,89 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         }
 
         RefreshTagFilters();
+    }
+
+    private void LoadBackups(string modsPath)
+    {
+        foreach (var item in BackupMods)
+        {
+            DetachModItem(item);
+        }
+
+        BackupMods.Clear();
+
+        var backupRoot = GetBackupRootPath(modsPath);
+        if (!Directory.Exists(backupRoot))
+        {
+            return;
+        }
+
+        var snapshotDirs = Directory.GetDirectories(backupRoot)
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var snapshotDir in snapshotDirs)
+        {
+            var folderName = Path.GetFileName(snapshotDir) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(folderName))
+            {
+                continue;
+            }
+
+            var record = TryReadBackupRecord(snapshotDir);
+            var originalFolderName = string.IsNullOrWhiteSpace(record?.OriginalFolderName)
+                ? folderName
+                : record!.OriginalFolderName;
+
+            var isEnabled = !originalFolderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+
+            var item = new ModManageItem
+            {
+                DisplayName = string.IsNullOrWhiteSpace(record?.DisplayName) ? originalFolderName : record!.DisplayName,
+                Version = string.IsNullOrWhiteSpace(record?.Version) ? "未知版本" : record!.Version,
+                Author = record?.Author ?? string.Empty,
+                Description = record?.Description ?? string.Empty,
+                DirectoryName = folderName,
+                FolderName = originalFolderName,
+                FullPath = snapshotDir,
+                UniqueId = record?.UniqueId ?? string.Empty,
+                IsEnabled = isEnabled,
+                IsBackupItem = true,
+                BackupOriginalFolderName = originalFolderName,
+                BackupTime = record?.CreatedAt,
+                UpdateStatus = record?.CreatedAt is DateTime dt
+                    ? $"备份于 {dt:yyyy-MM-dd HH:mm}"
+                    : "备份记录"
+            };
+
+            AttachModItem(item);
+            BackupMods.Add(item);
+        }
+    }
+
+    private static ModBackupRecord? TryReadBackupRecord(string backupDir)
+    {
+        try
+        {
+            var path = Path.Combine(backupDir, BackupMetaFileName);
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var json = File.ReadAllText(path);
+            return JsonSerializer.Deserialize<ModBackupRecord>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetBackupRootPath(string modsPath)
+    {
+        var instanceRoot = Directory.GetParent(modsPath)?.FullName ?? modsPath;
+        return Path.Combine(instanceRoot, BackupRootFolderName);
     }
 
     private void RefreshTagFilters()
@@ -1529,6 +4636,9 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 IsFolderTag = true,
                 IsPrefixFolderTag = folderTagSourceFlags.TryGetValue(tag, out var isPrefix) && isPrefix
             })
+            .Where(tag =>
+                (tag.IsPrefixFolderTag && ShowPrefixTags) ||
+                (!tag.IsPrefixFolderTag && ShowFolderTags))
             .ToList();
 
         var customTagsById = _modTagConfig.CustomTags
@@ -1550,7 +4660,20 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
                 Name = tag.Name,
                 IsFolderTag = false
             })
+            .Where(_ => ShowCustomTags)
             .ToList();
+
+        var tagSearch = (TagSearchKeyword ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(tagSearch))
+        {
+            folderTags = folderTags
+                .Where(tag => tag.Name.Contains(tagSearch, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            customTags = customTags
+                .Where(tag => tag.Name.Contains(tagSearch, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
 
         TagFilters.Clear();
         TagFilters.Add(new ModTagFilterOption
@@ -1605,9 +4728,12 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         SelectedTagFilter = TagFilters.FirstOrDefault(tag => string.Equals(tag.Key, previousKey, StringComparison.OrdinalIgnoreCase))
             ?? TagFilters.FirstOrDefault();
 
+        OnPropertyChanged(nameof(CanApplyTagSelectionToSearch));
         OnPropertyChanged(nameof(HasSelectedTagPanelItems));
         OnPropertyChanged(nameof(CanBatchAddSelectedTags));
         OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
     }
 
     private void AttachTagPanelItem(ModTagPanelItem item)
@@ -1630,7 +4756,9 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         OnPropertyChanged(nameof(HasSelectedTagPanelItems));
         OnPropertyChanged(nameof(CanBatchAddSelectedTags));
         OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
-        ApplyTagFilter();
+        OnPropertyChanged(nameof(CanApplyTagSelectionToSearch));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
     }
 
     private void ApplyCustomTagsToMod(ModManageItem mod, IReadOnlyDictionary<string, string> customTagNameById)
@@ -1664,31 +4792,275 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
     private void ApplyTagFilter()
     {
-        FilteredMods.Clear();
+        IEnumerable<ModManageItem> source = IsBackupTab ? BackupMods : Mods;
 
-        IEnumerable<ModManageItem> source = Mods;
-        var selectedPanelItems = TagPanelItems.Where(item => item.IsSelected).Select(item => item.Option).ToList();
-
-        if (selectedPanelItems.Count > 0)
+        var keyword = (SearchKeyword ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(keyword))
         {
-            source = source.Where(mod => selectedPanelItems.Any(option => MatchesTagFilterSingle(mod, option)));
-        }
-        else if (SelectedTagFilter != null && !SelectedTagFilter.IsAllOption)
-        {
-            source = source.Where(mod => MatchesTagFilterSingle(mod, SelectedTagFilter));
+            source = source.Where(mod => MatchesSearch(mod, keyword));
         }
 
-        foreach (var mod in source)
+        if (IsModsTab)
         {
-            FilteredMods.Add(mod);
+            source = CurrentModSubFilter switch
+            {
+                ModManageSubFilter.Enabled => source.Where(mod => mod.IsEnabled),
+                ModManageSubFilter.Disabled => source.Where(mod => !mod.IsEnabled),
+                ModManageSubFilter.Updatable => source.Where(mod => mod.HasUpdate),
+                _ => source
+            };
         }
 
-        if (SelectedMod != null && !FilteredMods.Contains(SelectedMod))
+        _filteredSource.Clear();
+        _filteredSource.AddRange(source);
+
+        TotalFilteredCount = _filteredSource.Count;
+        TotalPages = Math.Max(1, (int)Math.Ceiling(TotalFilteredCount / (double)ModsPageSize));
+
+        if (CurrentPageIndex > TotalPages)
+        {
+            CurrentPageIndex = TotalPages;
+        }
+        else if (CurrentPageIndex < 1)
+        {
+            CurrentPageIndex = 1;
+        }
+        else
+        {
+            RefreshPagedMods();
+            UpdatePageNumbers();
+            OnPropertyChanged(nameof(HasPreviousPage));
+            OnPropertyChanged(nameof(HasNextPage));
+            OnPropertyChanged(nameof(PageInfo));
+        }
+
+        if (SelectedMod != null && !_filteredSource.Contains(SelectedMod))
         {
             SelectedMod = null;
         }
 
+        UpdateSelectionState();
         RefreshModManageHint();
+    }
+
+    private void RefreshPagedMods()
+    {
+        FilteredMods.Clear();
+
+        var pageItems = _filteredSource
+            .Skip((Math.Max(CurrentPageIndex, 1) - 1) * ModsPageSize)
+            .Take(ModsPageSize);
+
+        foreach (var mod in pageItems)
+        {
+            FilteredMods.Add(mod);
+        }
+
+        OnPropertyChanged(nameof(IsCurrentPageAllSelected));
+    }
+
+    private void UpdatePageNumbers()
+    {
+        var total = Math.Max(1, TotalPages);
+        var current = Math.Clamp(CurrentPageIndex, 1, total);
+
+        if (total <= 7)
+        {
+            PageNumbers = Enumerable.Range(1, total).Select(static page => page.ToString()).ToList();
+            return;
+        }
+
+        var tokens = new List<string>
+        {
+            "1"
+        };
+
+        var start = Math.Max(2, current - 1);
+        var end = Math.Min(total - 1, current + 1);
+
+        if (start > 2)
+        {
+            tokens.Add("...");
+        }
+
+        for (var page = start; page <= end; page++)
+        {
+            tokens.Add(page.ToString());
+        }
+
+        if (end < total - 1)
+        {
+            tokens.Add("...");
+        }
+
+        tokens.Add(total.ToString());
+        PageNumbers = tokens;
+    }
+
+    private static bool MatchesSearch(ModManageItem mod, string query)
+    {
+        var parsed = ParseAdvancedSearchQuery(query);
+        return MatchesSearchSingle(mod, parsed);
+    }
+
+    private static bool MatchesSearchSingle(
+        ModManageItem mod,
+        (Dictionary<string, List<string>> Clauses, List<string> Keywords, List<string> ExcludedKeywords) parsed)
+    {
+        foreach (var clause in parsed.Clauses)
+        {
+            foreach (var value in clause.Value)
+            {
+                var matched = clause.Key switch
+                {
+                    "tag" => mod.AllTags.Any(tag => tag.Contains(value, StringComparison.OrdinalIgnoreCase)),
+                    "author" => mod.Author.Contains(value, StringComparison.OrdinalIgnoreCase),
+                    "description" => mod.Description.Contains(value, StringComparison.OrdinalIgnoreCase),
+                    "name" => mod.DisplayName.Contains(value, StringComparison.OrdinalIgnoreCase),
+                    "uid" => mod.UniqueId.Contains(value, StringComparison.OrdinalIgnoreCase),
+                    "folder" => mod.FolderName.Contains(value, StringComparison.OrdinalIgnoreCase) ||
+                                mod.DirectoryName.Contains(value, StringComparison.OrdinalIgnoreCase),
+                    "enabled" => mod.IsEnabled,
+                    "disabled" => !mod.IsEnabled,
+                    _ => MatchesKeyword(mod, value)
+                };
+
+                if (!matched)
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (!parsed.Keywords.All(keyword => MatchesKeyword(mod, keyword)))
+        {
+            return false;
+        }
+
+        if (parsed.ExcludedKeywords.Any(keyword => MatchesKeyword(mod, keyword)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool MatchesKeyword(ModManageItem mod, string keyword)
+    {
+        return mod.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.DirectoryName.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.Version.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.Author.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.Description.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.UniqueId.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+               || mod.AllTags.Any(tag => tag.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeDisplayTagForSearch(string? displayTag)
+    {
+        if (string.IsNullOrWhiteSpace(displayTag))
+        {
+            return string.Empty;
+        }
+
+        var tag = displayTag.Trim();
+        if (tag.Length >= 3 &&
+            (tag.StartsWith("🧩 ", StringComparison.Ordinal) ||
+             tag.StartsWith("📂 ", StringComparison.Ordinal) ||
+             tag.StartsWith("🏷 ", StringComparison.Ordinal)))
+        {
+            return tag[3..].Trim();
+        }
+
+        return tag;
+    }
+
+    private static (Dictionary<string, List<string>> Clauses, List<string> Keywords, List<string> ExcludedKeywords) ParseAdvancedSearchQuery(string query)
+    {
+        var clauses = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var keywords = new List<string>();
+        var excludedKeywords = new List<string>();
+
+        var raw = (query ?? string.Empty).Trim();
+        if (raw.Length == 0)
+        {
+            return (clauses, keywords, excludedKeywords);
+        }
+
+        var regex = new Regex(@"(?<key>tag|author|description|name|uid|folder|enabled|disabled):(?<value>""[^""]+""|\S+)", RegexOptions.IgnoreCase);
+        var consumed = new List<(int Start, int Length)>();
+
+        foreach (Match match in regex.Matches(raw))
+        {
+            var key = match.Groups["key"].Value.Trim().ToLowerInvariant();
+            var value = match.Groups["value"].Value.Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            if (!clauses.TryGetValue(key, out var list))
+            {
+                list = [];
+                clauses[key] = list;
+            }
+
+            list.Add(value);
+            consumed.Add((match.Index, match.Length));
+        }
+
+        var remainder = raw;
+        foreach (var piece in consumed.OrderByDescending(p => p.Start))
+        {
+            remainder = remainder.Remove(piece.Start, piece.Length);
+        }
+
+        foreach (var token in remainder.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var normalized = token.Trim();
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            if (normalized.StartsWith("-", StringComparison.Ordinal) && normalized.Length > 1)
+            {
+                excludedKeywords.Add(normalized.Substring(1));
+                continue;
+            }
+
+            keywords.Add(normalized);
+        }
+
+        return (clauses, keywords, excludedKeywords);
+    }
+
+    private static IEnumerable<string> EnumerateCandidateModDirectories(string modsPath)
+    {
+        var directDirectories = Directory.GetDirectories(modsPath)
+            .Where(path => !string.Equals(Path.GetFileName(path), BackupRootFolderName, StringComparison.OrdinalIgnoreCase));
+        var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var directory in directDirectories)
+        {
+            var manifestPath = Path.Combine(directory, "manifest.json");
+            if (File.Exists(manifestPath))
+            {
+                results.Add(directory);
+                continue;
+            }
+
+            foreach (var child in Directory.GetDirectories(directory))
+            {
+                var childManifestPath = Path.Combine(child, "manifest.json");
+                if (File.Exists(childManifestPath))
+                {
+                    results.Add(child);
+                }
+            }
+        }
+
+        return results;
     }
 
     private static bool MatchesTagFilterSingle(ModManageItem mod, ModTagFilterOption option)
@@ -1732,9 +5104,75 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         }
 
         var trimmed = value.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return trimmed.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
-            ? trimmed[..^".disabled".Length]
-            : trimmed;
+        return NormalizeFolderName(trimmed);
+    }
+
+    private static bool IsDisabledFolderName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var folderName = GetLeafFolderName(value);
+        return folderName.StartsWith(".", StringComparison.Ordinal)
+               || folderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeFolderName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var folderName = GetLeafFolderName(value);
+        if (folderName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+        {
+            folderName = folderName[..^".disabled".Length];
+        }
+
+        return folderName.Trim('.');
+    }
+
+    private static string GetDisabledFolderPath(string folderPath, bool useTrailingDotFallback = false)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return folderPath;
+        }
+
+        var directory = Path.GetDirectoryName(folderPath);
+        var baseName = NormalizeFolderName(Path.GetFileName(folderPath));
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "_";
+        }
+
+        var disabledName = useTrailingDotFallback ? $".{baseName}." : $".{baseName}";
+        return string.IsNullOrWhiteSpace(directory)
+            ? disabledName
+            : Path.Combine(directory, disabledName);
+    }
+
+    private static string GetEnabledFolderPath(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return folderPath;
+        }
+
+        var directory = Path.GetDirectoryName(folderPath);
+        var enabledName = NormalizeFolderName(Path.GetFileName(folderPath));
+        return string.IsNullOrWhiteSpace(directory)
+            ? enabledName
+            : Path.Combine(directory, enabledName);
+    }
+
+    private static string GetLeafFolderName(string value)
+    {
+        var trimmed = value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Path.GetFileName(trimmed) ?? string.Empty;
     }
 
     private static string TryExtractPrefixCategory(string? folderName)
@@ -1780,10 +5218,10 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     [RelayCommand]
     private void AddCustomTag()
     {
-        var name = (NewCustomTagName ?? string.Empty).Trim();
+        var name = (TagSearchKeyword ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            Status = "请输入要创建的标签名称";
+            Status = "请先在筛选框中输入标签名，再点新增";
             return;
         }
 
@@ -1807,7 +5245,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             return;
         }
 
-        NewCustomTagName = string.Empty;
+        TagSearchKeyword = string.Empty;
         LoadAndApplyTags(_currentModsPathForTagConfig);
         ApplyTagFilter();
         Status = "已创建自定义标签";
@@ -1856,11 +5294,17 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
-    private void DeleteCustomTag()
+    private async Task DeleteCustomTag()
     {
         if (SelectedCustomTag == null || string.IsNullOrWhiteSpace(SelectedCustomTag.TagId))
         {
             Status = "请先选择一个自定义标签";
+            return;
+        }
+
+        var confirmed = await _dialogService.ShowConfirmAsync("删除标签", $"确定删除标签“{SelectedCustomTag.Name}”吗？");
+        if (!confirmed)
+        {
             return;
         }
 
@@ -1889,6 +5333,109 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
+    private async Task RenameCustomTagFromChip(ModTagPanelItem? item)
+    {
+        if (item == null || !item.IsCustomTag || string.IsNullOrWhiteSpace(item.TagId))
+        {
+            return;
+        }
+
+        var target = CustomTagDefinitions.FirstOrDefault(tag => string.Equals(tag.TagId, item.TagId, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            return;
+        }
+
+        var input = await _dialogService.ShowInputAsync("重命名标签", "请输入新的标签名称", target.Name);
+        input = input?.Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return;
+        }
+
+        SelectedCustomTag = target;
+        RenameCustomTagName = input;
+        RenameCustomTag();
+    }
+
+    [RelayCommand]
+    private async Task DeleteCustomTagFromChip(ModTagPanelItem? item)
+    {
+        if (item == null || !item.IsCustomTag || string.IsNullOrWhiteSpace(item.TagId))
+        {
+            return;
+        }
+
+        var target = CustomTagDefinitions.FirstOrDefault(tag => string.Equals(tag.TagId, item.TagId, StringComparison.OrdinalIgnoreCase));
+        if (target == null)
+        {
+            return;
+        }
+
+        SelectedCustomTag = target;
+        await DeleteCustomTag();
+    }
+
+    [RelayCommand]
+    private void ApplySelectedTagsToSearch()
+    {
+        var selectedNames = TagPanelItems
+            .Where(item => item.IsSelected)
+            .Select(item => item.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (selectedNames.Count == 0 && SelectedTagFilter is { IsAllOption: false })
+        {
+            selectedNames.Add(SelectedTagFilter.Name);
+        }
+
+        if (selectedNames.Count == 0)
+        {
+            Status = "请先选择至少一个 Tag，再点击搜索";
+            return;
+        }
+
+        SearchKeyword = string.Join(" ", selectedNames.Select(name => $"tag:\"{name}\""));
+        Status = $"已写入 {selectedNames.Count} 个 Tag 搜索条件";
+    }
+
+    [RelayCommand]
+    private void ClickTagSearch(string? tagDisplayText)
+    {
+        var normalized = NormalizeDisplayTagForSearch(tagDisplayText);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        SearchKeyword = $"tag:\"{normalized}\"";
+    }
+
+    [RelayCommand]
+    private void ClickDependencySearch(ModDependencyDisplayItem? dependency)
+    {
+        if (dependency == null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dependency.UniqueId))
+        {
+            SearchKeyword = $"uid:\"{dependency.UniqueId}\"";
+        }
+        else if (!string.IsNullOrWhiteSpace(dependency.DisplayName))
+        {
+            SearchKeyword = $"name:\"{dependency.DisplayName}\"";
+        }
+
+        Status = string.IsNullOrWhiteSpace(dependency.DisplayName)
+            ? "已根据前置条件写入搜索"
+            : $"已定位前置：{dependency.DisplayName}";
+    }
+
+    [RelayCommand]
     private void BatchBindSelectedTagsToSelectedMod()
     {
         BatchApplySelectedTagChips(bind: true);
@@ -1900,57 +5447,96 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         BatchApplySelectedTagChips(bind: false);
     }
 
+    [RelayCommand]
+    private void ApplyTagBatchAction()
+    {
+        var bind = !ShouldRemoveSelectedTagsFromSelectedMods();
+        BatchApplySelectedTagChips(bind);
+    }
+
+    [RelayCommand]
+    private void ClearSelectedTags()
+    {
+        foreach (var item in TagPanelItems)
+        {
+            item.IsSelected = false;
+        }
+
+        InlineTagHint = "已清除选中 Tags";
+        OnPropertyChanged(nameof(HasSelectedTagPanelItems));
+        OnPropertyChanged(nameof(CanApplyTagSelectionToSearch));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
+    }
+
     private void BatchApplySelectedTagChips(bool bind)
     {
-        if (SelectedMod == null)
+        if (IsBackupTab)
         {
-            Status = "请先选择一个 Mod";
+            Status = "备份模式下不支持标签编辑";
             return;
         }
 
-        var selectedChips = TagPanelItems
-            .Where(item => item.IsSelected && item.IsCustomTag && !string.IsNullOrWhiteSpace(item.TagId))
-            .ToList();
-        if (selectedChips.Count == 0)
+        var selectedMods = GetEffectiveSelectedMods();
+        if (selectedMods.Count == 0)
         {
-            Status = "请先在标签面板中选中至少一个自定义标签";
+            Status = "请先勾选至少一个 Mod";
             return;
         }
 
-        var key = GetModTagKey(SelectedMod);
-        if (string.IsNullOrWhiteSpace(key))
+        var selectedTagIds = ResolveSelectedCustomTagIdsForBatch(bind);
+        if (selectedTagIds.Count == 0)
         {
-            Status = "当前 Mod 无法映射标签键";
+            Status = bind
+                ? "请先选中标签，或在输入框填写标签名后点击添加标签"
+                : "请先在标签面板中选中至少一个自定义标签";
             return;
-        }
-
-        if (!_modTagConfig.Assignments.TryGetValue(key, out var assigned))
-        {
-            assigned = [];
-            _modTagConfig.Assignments[key] = assigned;
         }
 
         var changed = false;
-        foreach (var chip in selectedChips)
+        var changedMods = 0;
+        foreach (var mod in selectedMods)
         {
-            if (bind)
+            var key = GetModTagKey(mod);
+            if (string.IsNullOrWhiteSpace(key))
             {
-                if (!assigned.Any(id => string.Equals(id, chip.TagId, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            }
+
+            if (!_modTagConfig.Assignments.TryGetValue(key, out var assigned))
+            {
+                assigned = [];
+                _modTagConfig.Assignments[key] = assigned;
+            }
+
+            var modChanged = false;
+            foreach (var tagId in selectedTagIds)
+            {
+                if (bind)
                 {
-                    assigned.Add(chip.TagId);
-                    changed = true;
+                    if (!assigned.Any(id => string.Equals(id, tagId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        assigned.Add(tagId);
+                        modChanged = true;
+                    }
+                }
+                else
+                {
+                    var removed = assigned.RemoveAll(id => string.Equals(id, tagId, StringComparison.OrdinalIgnoreCase));
+                    modChanged = modChanged || removed > 0;
                 }
             }
-            else
-            {
-                var removed = assigned.RemoveAll(id => string.Equals(id, chip.TagId, StringComparison.OrdinalIgnoreCase));
-                changed = changed || removed > 0;
-            }
-        }
 
-        if (assigned.Count == 0)
-        {
-            _modTagConfig.Assignments.Remove(key);
+            if (assigned.Count == 0)
+            {
+                _modTagConfig.Assignments.Remove(key);
+            }
+
+            if (modChanged)
+            {
+                changed = true;
+                changedMods++;
+            }
         }
 
         if (!changed)
@@ -1967,7 +5553,406 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
         LoadAndApplyTags(_currentModsPathForTagConfig);
         ApplyTagFilter();
-        InlineTagHint = bind ? "已绑定选中标签到当前 Mod" : "已从当前 Mod 解绑选中标签";
+        InlineTagHint = bind
+            ? $"已将选中标签绑定到 {changedMods} 个 Mod"
+            : $"已从 {changedMods} 个 Mod 解绑选中标签";
+
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
+    }
+
+    private List<string> ResolveSelectedCustomTagIdsForBatch(bool bind)
+    {
+        var selectedTagIds = TagPanelItems
+            .Where(item => item.IsSelected && item.IsCustomTag && !string.IsNullOrWhiteSpace(item.TagId))
+            .Select(item => item.TagId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!bind || selectedTagIds.Count > 0)
+        {
+            return selectedTagIds;
+        }
+
+        var inputName = (TagSearchKeyword ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(inputName))
+        {
+            return selectedTagIds;
+        }
+
+        var existingTag = _modTagConfig.CustomTags.FirstOrDefault(tag =>
+            !string.IsNullOrWhiteSpace(tag.Id) &&
+            string.Equals(tag.Name, inputName, StringComparison.OrdinalIgnoreCase));
+
+        if (existingTag == null)
+        {
+            var newTagId = Guid.NewGuid().ToString("N");
+            existingTag = new ModCustomTagDefinition
+            {
+                Id = newTagId,
+                Name = inputName
+            };
+            _modTagConfig.CustomTags.Add(existingTag);
+            _modTagConfig.CustomTagOrder.Add(newTagId);
+            TagSearchKeyword = string.Empty;
+        }
+
+        selectedTagIds.Add(existingTag.Id);
+        return selectedTagIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private bool ShouldRemoveSelectedTagsFromSelectedMods()
+    {
+        var selectedMods = GetEffectiveSelectedMods().Where(mod => !mod.IsBackupItem).ToList();
+        if (selectedMods.Count == 0)
+        {
+            return false;
+        }
+
+        var selectedTagIds = ResolveSelectedCustomTagIdsForBatch(bind: false);
+        if (selectedTagIds.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var mod in selectedMods)
+        {
+            var modKey = GetModTagKey(mod);
+            if (string.IsNullOrWhiteSpace(modKey) ||
+                !_modTagConfig.Assignments.TryGetValue(modKey, out var assigned) ||
+                assigned == null)
+            {
+                return false;
+            }
+
+            foreach (var tagId in selectedTagIds)
+            {
+                if (!assigned.Any(id => string.Equals(id, tagId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    [RelayCommand]
+    private void ToggleCurrentPageSelection()
+    {
+        if (FilteredMods.Count == 0)
+        {
+            return;
+        }
+
+        var allSelected = FilteredMods.All(item => item.IsSelected);
+        foreach (var mod in FilteredMods)
+        {
+            mod.IsSelected = !allSelected;
+        }
+
+        UpdateSelectionState();
+    }
+
+    [RelayCommand]
+    private void ClearSelection()
+    {
+        var source = IsBackupTab ? BackupMods : Mods;
+        foreach (var mod in source)
+        {
+            mod.IsSelected = false;
+        }
+
+        UpdateSelectionState();
+    }
+
+    [RelayCommand]
+    private void EnableSelectedMods()
+    {
+        if (IsBackupTab)
+        {
+            return;
+        }
+
+        var targets = GetEffectiveSelectedMods()
+            .Where(mod => !mod.IsBackupItem && !mod.IsEnabled)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            Status = "没有可启用的已选 Mod";
+            return;
+        }
+
+        var changed = 0;
+        foreach (var target in targets)
+        {
+            SelectedMod = target;
+            EnableSelectedMod();
+            if (target.IsEnabled)
+            {
+                changed++;
+            }
+        }
+
+        Status = $"已启用 {changed}/{targets.Count} 个 Mod";
+    }
+
+    [RelayCommand]
+    private void DisableSelectedMods()
+    {
+        if (IsBackupTab)
+        {
+            return;
+        }
+
+        var targets = GetEffectiveSelectedMods()
+            .Where(mod => !mod.IsBackupItem && mod.IsEnabled)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            Status = "没有可禁用的已选 Mod";
+            return;
+        }
+
+        var changed = 0;
+        foreach (var target in targets)
+        {
+            SelectedMod = target;
+            DisableSelectedMod();
+            if (!target.IsEnabled)
+            {
+                changed++;
+            }
+        }
+
+        Status = $"已禁用 {changed}/{targets.Count} 个 Mod";
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelectedMods()
+    {
+        if (IsBackupTab)
+        {
+            return;
+        }
+
+        var targets = GetEffectiveSelectedMods()
+            .Where(mod => !mod.IsBackupItem)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            Status = "请先选择至少一个 Mod";
+            return;
+        }
+
+        var confirmed = await _dialogService.ShowConfirmAsync("删除 Mod", $"确定删除选中的 {targets.Count} 个 Mod 吗？");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var deleted = 0;
+        foreach (var target in targets)
+        {
+            if (string.IsNullOrWhiteSpace(target.FullPath) || !Directory.Exists(target.FullPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(target.FullPath, true);
+                DetachModItem(target);
+                Mods.Remove(target);
+                deleted++;
+            }
+            catch
+            {
+                // Continue deleting remaining items.
+            }
+        }
+
+        ApplyTagFilter();
+        Status = $"已删除 {deleted}/{targets.Count} 个 Mod";
+    }
+
+    [RelayCommand]
+    private void PreviousPage()
+    {
+        if (HasPreviousPage)
+        {
+            CurrentPageIndex--;
+        }
+    }
+
+    [RelayCommand]
+    private void NextPage()
+    {
+        if (HasNextPage)
+        {
+            CurrentPageIndex++;
+        }
+    }
+
+    [RelayCommand]
+    private void GoToPage(string? pageToken)
+    {
+        if (!int.TryParse(pageToken, out var pageNumber))
+        {
+            return;
+        }
+
+        if (pageNumber >= 1 && pageNumber <= TotalPages && pageNumber != CurrentPageIndex)
+        {
+            CurrentPageIndex = pageNumber;
+        }
+    }
+
+    [RelayCommand]
+    private void ClearSearchKeyword()
+    {
+        SearchKeyword = string.Empty;
+    }
+
+    [RelayCommand]
+    private async Task ShowAdvancedSearchHelp()
+    {
+        var helpText =
+            "支持语法关键字\n" +
+            "• tag: 按标签筛选\n" +
+            "• author: 按作者筛选\n" +
+            "• description: 按描述筛选\n" +
+            "• name: 按名称筛选\n" +
+            "• uid: 按 UniqueID 筛选\n" +
+            "• folder: 按目录名筛选\n" +
+            "• enabled: 仅启用项\n" +
+            "• disabled: 仅禁用项\n\n" +
+            "书写示例\n" +
+            "• tag:\"UI\" author:Pathos\n" +
+            "• enabled:yes tag:地图\n" +
+            "• name:\"CJB Cheats Menu\" -test\n\n" +
+            "提示\n" +
+            "• 普通关键词可直接输入，多个词默认同时匹配\n" +
+            "• 使用 -关键词 可排除内容\n" +
+            "• 含空格的值建议用英文双引号包裹";
+
+        await _dialogService.ShowWindowTitleHelpDialogAsync(helpText, "高级语法速查");
+    }
+
+    [RelayCommand]
+    private async Task AddSelectedModsToNewTag()
+    {
+        if (IsBackupTab)
+        {
+            Status = "备份模式下不支持标签编辑";
+            return;
+        }
+
+        var selectedMods = GetEffectiveSelectedMods()
+            .Where(mod => !mod.IsBackupItem)
+            .ToList();
+        if (selectedMods.Count == 0)
+        {
+            Status = "请先选择至少一个 Mod";
+            return;
+        }
+
+        var inputName = await _dialogService.ShowInputAsync("添加到新标签", "请输入新标签名称");
+        inputName = inputName?.Trim();
+        if (string.IsNullOrWhiteSpace(inputName))
+        {
+            return;
+        }
+
+        var targetTag = _modTagConfig.CustomTags.FirstOrDefault(tag =>
+            !string.IsNullOrWhiteSpace(tag.Id) &&
+            string.Equals(tag.Name, inputName, StringComparison.OrdinalIgnoreCase));
+
+        if (targetTag == null)
+        {
+            var newTagId = Guid.NewGuid().ToString("N");
+            targetTag = new ModCustomTagDefinition
+            {
+                Id = newTagId,
+                Name = inputName
+            };
+            _modTagConfig.CustomTags.Add(targetTag);
+            _modTagConfig.CustomTagOrder.Add(newTagId);
+        }
+
+        var changed = 0;
+        foreach (var mod in selectedMods)
+        {
+            var modKey = GetModTagKey(mod);
+            if (string.IsNullOrWhiteSpace(modKey))
+            {
+                continue;
+            }
+
+            if (!_modTagConfig.Assignments.TryGetValue(modKey, out var assignedTagIds))
+            {
+                assignedTagIds = [];
+                _modTagConfig.Assignments[modKey] = assignedTagIds;
+            }
+
+            if (assignedTagIds.Any(tagId => string.Equals(tagId, targetTag.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            assignedTagIds.Add(targetTag.Id);
+            changed++;
+        }
+
+        if (changed == 0)
+        {
+            Status = "已选 Mod 已包含该标签";
+            return;
+        }
+
+        if (!ModTagConfigService.Save(_currentModsPathForTagConfig, _modTagConfig))
+        {
+            Status = "保存标签失败";
+            return;
+        }
+
+        LoadAndApplyTags(_currentModsPathForTagConfig);
+        ApplyTagFilter();
+        InlineTagHint = $"已将 {selectedMods.Count} 个 Mod 添加到标签“{targetTag.Name}”";
+    }
+
+    private List<ModManageItem> GetEffectiveSelectedMods()
+    {
+        var source = IsBackupTab ? BackupMods : Mods;
+        var selected = source.Where(mod => mod.IsSelected).ToList();
+        if (selected.Count > 0)
+        {
+            return selected;
+        }
+
+        if (SelectedMod != null && source.Contains(SelectedMod))
+        {
+            return [SelectedMod];
+        }
+
+        return [];
+    }
+
+    private void UpdateSelectionState()
+    {
+        var source = IsBackupTab ? BackupMods : Mods;
+        SelectedCount = source.Count(mod => mod.IsSelected);
+        ShowSelectionActions = SelectedCount > 0;
+        OnPropertyChanged(nameof(IsCurrentPageAllSelected));
+        OnPropertyChanged(nameof(CanBatchAddSelectedTags));
+        OnPropertyChanged(nameof(CanBatchRemoveSelectedTags));
+        OnPropertyChanged(nameof(ShowTagBatchAction));
+        OnPropertyChanged(nameof(TagBatchActionText));
+        OnPropertyChanged(nameof(CanToggleCurrentPageSelection));
+        OnPropertyChanged(nameof(ShowSelectionActionsBar));
     }
 
     [RelayCommand]
@@ -1983,14 +5968,15 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             return;
         }
 
-        if (!target.FullPath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+        var currentFolderName = Path.GetFileName(target.FullPath);
+        if (!IsDisabledFolderName(currentFolderName))
         {
             Status = "启用失败：当前 Mod 目录后缀异常";
             RefreshModManageHint("启用失败：目录后缀异常，请刷新列表后重试");
             return;
         }
 
-        var newPath = target.FullPath[..^".disabled".Length];
+        var newPath = GetEnabledFolderPath(target.FullPath);
         if (Directory.Exists(newPath))
         {
             Status = "启用失败：已存在同名启用目录";
@@ -2001,8 +5987,7 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
         try
         {
             Directory.Move(target.FullPath, newPath);
-            target.FullPath = newPath;
-            target.DirectoryName = Path.GetFileName(newPath);
+            UpdateModPathAfterRename(target, newPath);
             target.IsEnabled = true;
             target.UpdateStatus = "已启用（本次）";
             Status = $"已启用 Mod: {target.DisplayName}";
@@ -2033,26 +6018,34 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             return;
         }
 
-        if (target.FullPath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+        var currentFolderName = Path.GetFileName(target.FullPath);
+        if (IsDisabledFolderName(currentFolderName))
         {
             Status = "禁用失败：当前 Mod 已处于禁用目录";
             RefreshModManageHint("禁用失败：目录后缀异常，请刷新列表后重试");
             return;
         }
 
-        var newPath = $"{target.FullPath}.disabled";
+        var newPath = GetDisabledFolderPath(target.FullPath);
         if (Directory.Exists(newPath))
         {
-            Status = "禁用失败：已存在同名禁用目录";
-            RefreshModManageHint("禁用失败：存在同名目录，请先处理冲突后重试");
-            return;
+            var fallbackPath = GetDisabledFolderPath(target.FullPath, useTrailingDotFallback: true);
+            if (!Directory.Exists(fallbackPath))
+            {
+                newPath = fallbackPath;
+            }
+            else
+            {
+                Status = "禁用失败：已存在同名禁用目录";
+                RefreshModManageHint("禁用失败：存在同名目录，请先处理冲突后重试");
+                return;
+            }
         }
 
         try
         {
             Directory.Move(target.FullPath, newPath);
-            target.FullPath = newPath;
-            target.DirectoryName = Path.GetFileName(newPath);
+            UpdateModPathAfterRename(target, newPath);
             target.IsEnabled = false;
             target.UpdateStatus = "已禁用（本次）";
             Status = $"已禁用 Mod: {target.DisplayName}";
@@ -2068,6 +6061,20 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
             Status = $"禁用失败: {ex.Message}";
             RefreshModManageHint($"禁用失败：{target.DisplayName}");
         }
+    }
+
+    private void UpdateModPathAfterRename(ModManageItem target, string newPath)
+    {
+        target.FullPath = newPath;
+        target.FolderName = NormalizeFolderName(Path.GetFileName(newPath));
+
+        if (TryGetCurrentModsPath(out var modsPath) && !string.IsNullOrWhiteSpace(modsPath))
+        {
+            target.DirectoryName = Path.GetRelativePath(modsPath, newPath);
+            return;
+        }
+
+        target.DirectoryName = Path.GetFileName(newPath);
     }
 
     [RelayCommand]
@@ -2101,15 +6108,29 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
-    private void CheckUpdateSelectedMod()
+    private async Task CheckUpdateSelectedMod()
     {
         if (!TryGetSelectedModForAction("检查更新", out var target))
         {
             return;
         }
 
-        target.UpdateStatus = $"已检查 {DateTime.Now:HH:mm}";
-        Status = $"已检查更新入口: {target.DisplayName}";
+        var checkResult = await CheckUpdateForModAsync(target);
+        if (checkResult == null)
+        {
+            target.UpdateStatus = "缺少来源信息";
+            Status = $"更新检测失败：{target.DisplayName}";
+            return;
+        }
+
+        target.HasUpdate = checkResult.HasUpdate;
+        target.CurseforgeProjectId = FirstNonEmpty(checkResult.CurseforgeProjectId, target.CurseforgeProjectId);
+        target.NexusModsProjectId = FirstNonEmpty(checkResult.NexusModsProjectId, target.NexusModsProjectId);
+        target.UpdateSource = FirstNonEmpty(checkResult.UpdateSource, target.UpdateSource);
+        target.UpdateStatus = BuildUpdateStatusText(checkResult);
+        Status = checkResult.IsTokenExpired
+            ? "Nexus 登录已过期，请先重新登录"
+            : $"已完成更新检查：{target.DisplayName}";
         RefreshModManageHint($"已完成更新检查：{target.DisplayName}");
         OnPropertyChanged(nameof(SelectedModDetails));
     }
@@ -2423,55 +6444,315 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
     }
 
     [RelayCommand]
-    private void ExportCurrentMods()
+    private void ToggleSelectAllExportMods()
     {
-        var settings = _settingsStore.Load();
-        var gamePath = settings.PreferredInstancePath;
-
-        if (string.IsNullOrWhiteSpace(gamePath) || !Directory.Exists(gamePath))
+        if (!IncludeMods || ExportModItems.Count == 0)
         {
-            gamePath = _gameInstallPathLocator.TryLocateSteamStardewPath() ?? _gameInstallPathLocator.TryLocateGogStardewPath();
-        }
-
-        if (string.IsNullOrWhiteSpace(gamePath) || !Directory.Exists(gamePath))
-        {
-            Status = "未探测到游戏目录，无法导出";
             return;
         }
 
-        var modsPath = Path.Combine(gamePath, "Mods");
-        if (!Directory.Exists(modsPath))
+        var allSelected = ExportModItems.All(item => item.IsSelected);
+        foreach (var item in ExportModItems)
         {
-            Status = "当前实例不存在 Mods 目录，无法导出";
-            return;
+            item.IsSelected = !allSelected;
         }
 
+        OnPropertyChanged(nameof(SelectedExportModCount));
+        OnPropertyChanged(nameof(CanStartExport));
+        OnPropertyChanged(nameof(ExportProgressText));
+    }
+
+    [RelayCommand]
+    private async Task SaveExportConfig()
+    {
         try
         {
-            var exportRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SVL",
-                "Avalonia",
-                "Exports");
-            Directory.CreateDirectory(exportRoot);
-
-            var prefix = string.IsNullOrWhiteSpace(ExportNamePrefix) ? "SVL-Modpack" : ExportNamePrefix.Trim();
-            var fileName = $"{prefix}-{DateTime.Now:yyyyMMddHHmmss}.zip";
-            var exportPath = Path.Combine(exportRoot, fileName);
-
-            if (File.Exists(exportPath))
+            var folderPath = await _dialogService.BrowseFolderPathAsync("选择导出配置保存目录");
+            if (string.IsNullOrWhiteSpace(folderPath))
             {
-                File.Delete(exportPath);
+                return;
             }
 
-            ZipFile.CreateFromDirectory(modsPath, exportPath, CompressionLevel.SmallestSize, true);
-            LastExportPath = exportPath;
-            OnPropertyChanged(nameof(ExportHint));
-            Status = $"导出成功（{DateTime.Now:HH:mm:ss}）";
+            Directory.CreateDirectory(folderPath);
+            var targetFileName = $"{SanitizeFileName(FirstNonEmpty(ModpackName, ExportNamePrefix, "SVL-Modpack"))}_export_config.svlexport";
+            var targetPath = Path.Combine(folderPath, targetFileName);
+
+            var config = new VersionSettingsExportConfig
+            {
+                ModpackName = ModpackName,
+                ModpackVersion = ModpackVersion,
+                ModpackAuthor = ModpackAuthor,
+                IncludeMods = IncludeMods,
+                IncludeModSettings = IncludeModSettings,
+                IncludeSvlLauncher = IncludeSvlLauncher,
+                SelectedModKeys = ExportModItems
+                    .Where(item => item.IsSelected)
+                    .Select(item => item.SelectionKey)
+                    .Where(key => !string.IsNullOrWhiteSpace(key))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+            };
+
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(targetPath, json, Encoding.UTF8);
+
+            ExportStatusMessage = $"导出配置已保存: {targetFileName}";
+            Status = ExportStatusMessage;
         }
         catch (Exception ex)
         {
-            Status = $"导出失败: {ex.Message}";
+            ExportStatusMessage = $"保存配置失败: {ex.Message}";
+            Status = ExportStatusMessage;
+        }
+    }
+
+    [RelayCommand]
+    private async Task LoadExportConfig()
+    {
+        try
+        {
+            var configPath = await _dialogService.BrowseFilePathAsync(
+                "读取导出配置",
+                [new global::Avalonia.Platform.Storage.FilePickerFileType("导出配置") { Patterns = ["*.svlexport", "*.json"] }]);
+
+            if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(configPath, Encoding.UTF8);
+            var config = JsonSerializer.Deserialize<VersionSettingsExportConfig>(json);
+            if (config == null)
+            {
+                ExportStatusMessage = "配置文件格式无效";
+                Status = ExportStatusMessage;
+                return;
+            }
+
+            ModpackName = FirstNonEmpty(config.ModpackName, ModpackName);
+            ModpackVersion = FirstNonEmpty(config.ModpackVersion, ModpackVersion);
+            ModpackAuthor = FirstNonEmpty(config.ModpackAuthor, ModpackAuthor);
+            IncludeMods = config.IncludeMods;
+            IncludeModSettings = config.IncludeModSettings;
+            IncludeSvlLauncher = config.IncludeSvlLauncher;
+
+            ReloadExportModItems();
+
+            if (config.SelectedModKeys is { Length: > 0 })
+            {
+                var selectedSet = new HashSet<string>(config.SelectedModKeys, StringComparer.OrdinalIgnoreCase);
+                foreach (var item in ExportModItems)
+                {
+                    item.IsSelected = selectedSet.Contains(item.SelectionKey);
+                }
+            }
+
+            OnPropertyChanged(nameof(SelectedExportModCount));
+            OnPropertyChanged(nameof(CanStartExport));
+            OnPropertyChanged(nameof(ExportProgressText));
+
+            ExportStatusMessage = "导出配置已加载";
+            Status = "导出配置已加载";
+        }
+        catch (Exception ex)
+        {
+            ExportStatusMessage = $"读取配置失败: {ex.Message}";
+            Status = ExportStatusMessage;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportCurrentMods()
+    {
+        if (IsExporting)
+        {
+            return;
+        }
+
+        ReloadExportModItems();
+
+        var selectedMods = ExportModItems.Where(item => item.IsSelected).ToList();
+        if (IncludeMods && selectedMods.Count == 0)
+        {
+            ExportStatusMessage = "请至少选择一个 Mod";
+            Status = ExportStatusMessage;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ModpackName))
+        {
+            ExportStatusMessage = "请输入整合包名称";
+            Status = ExportStatusMessage;
+            return;
+        }
+
+        var targetFolder = await _dialogService.BrowseFolderPathAsync("选择整合包导出目录");
+        if (string.IsNullOrWhiteSpace(targetFolder))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(targetFolder);
+        var defaultName = SanitizeFileName(FirstNonEmpty(ModpackName, ExportNamePrefix, "SVL-Modpack"));
+        var outputPath = Path.Combine(targetFolder, $"{defaultName}-{DateTime.Now:yyyyMMddHHmmss}.zip");
+
+        IsExporting = true;
+        ExportProgress = 0;
+        ExportStatusMessage = "正在准备导出...";
+        Status = ExportStatusMessage;
+
+        try
+        {
+            var settings = _settingsStore.Load();
+            var instancePath = settings.PreferredInstancePath;
+            var selectedSnapshots = selectedMods
+                .Select(item => new ExportModPackageItem
+                {
+                    Name = item.Name,
+                    UniqueId = item.UniqueId,
+                    Version = item.Version,
+                    Author = item.Author,
+                    ModPath = item.ModPath,
+                    DirectoryName = item.DirectoryName,
+                    SourcePlatform = item.SourcePlatform,
+                    SourceProjectId = item.SourceProjectId,
+                    SourceFileId = item.SourceFileId
+                })
+                .ToList();
+
+            ExportProgress = 12;
+            await Task.Run(() => BuildVersionSettingsExportPackage(outputPath, instancePath, selectedSnapshots));
+
+            ExportProgress = 100;
+            LastExportPath = outputPath;
+            ExportStatusMessage = $"导出完成：{Path.GetFileName(outputPath)}";
+            Status = ExportStatusMessage;
+        }
+        catch (Exception ex)
+        {
+            ExportStatusMessage = $"导出失败: {ex.Message}";
+            Status = ExportStatusMessage;
+        }
+        finally
+        {
+            IsExporting = false;
+        }
+    }
+
+    private void BuildVersionSettingsExportPackage(
+        string outputPath,
+        string instancePath,
+        IReadOnlyList<ExportModPackageItem> selectedMods)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "svl-export-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var exportManifest = new VersionSettingsExportManifest
+            {
+                SchemaVersion = 1,
+                ModpackName = ModpackName,
+                ModpackVersion = ModpackVersion,
+                ModpackAuthor = ModpackAuthor,
+                ExportedAtUtc = DateTimeOffset.UtcNow,
+                InstancePath = instancePath,
+                IncludeMods = IncludeMods,
+                IncludeModSettings = IncludeModSettings,
+                IncludeSvlLauncher = IncludeSvlLauncher,
+                Notes = "遵循来源平台分发规则，导出包不包含 Mod 本体，仅包含清单与可选配置。",
+                Mods = selectedMods.Select(mod => new VersionSettingsExportManifestMod
+                {
+                    Name = mod.Name,
+                    UniqueId = mod.UniqueId,
+                    Version = mod.Version,
+                    Author = mod.Author,
+                    DirectoryName = mod.DirectoryName,
+                    SourcePlatform = mod.SourcePlatform,
+                    SourceProjectId = mod.SourceProjectId,
+                    SourceFileId = mod.SourceFileId,
+                    RequiresManualInstall = !mod.HasSourceCredential
+                }).ToList()
+            };
+
+            File.WriteAllText(
+                Path.Combine(tempRoot, "export-manifest.json"),
+                JsonSerializer.Serialize(exportManifest, new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+
+            if (IncludeModSettings)
+            {
+                var settingsRoot = Path.Combine(tempRoot, "mod-settings");
+                foreach (var mod in selectedMods)
+                {
+                    CopyModSettingsForExport(mod, settingsRoot);
+                }
+            }
+
+            if (IncludeSvlLauncher)
+            {
+                var processPath = Environment.ProcessPath;
+                if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
+                {
+                    var launcherRoot = Path.Combine(tempRoot, "launcher");
+                    Directory.CreateDirectory(launcherRoot);
+                    File.Copy(processPath, Path.Combine(launcherRoot, Path.GetFileName(processPath)), overwrite: true);
+                }
+            }
+
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+
+            ZipFile.CreateFromDirectory(tempRoot, outputPath, CompressionLevel.SmallestSize, includeBaseDirectory: false);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, true);
+                }
+            }
+            catch
+            {
+                // ignore temp cleanup failure
+            }
+        }
+    }
+
+    private static void CopyModSettingsForExport(ExportModPackageItem mod, string settingsRoot)
+    {
+        if (string.IsNullOrWhiteSpace(mod.ModPath) || !Directory.Exists(mod.ModPath))
+        {
+            return;
+        }
+
+        var folderName = SanitizeFileName(FirstNonEmpty(mod.UniqueId, mod.DirectoryName, Path.GetFileName(mod.ModPath)));
+        var targetRoot = Path.Combine(settingsRoot, folderName);
+        Directory.CreateDirectory(targetRoot);
+
+        var rootJsonFiles = Directory.GetFiles(mod.ModPath, "*.json", SearchOption.TopDirectoryOnly)
+            .Where(file =>
+            {
+                var fileName = Path.GetFileName(file);
+                return !string.Equals(fileName, "manifest.json", StringComparison.OrdinalIgnoreCase) &&
+                       !string.Equals(fileName, "svl-source.json", StringComparison.OrdinalIgnoreCase) &&
+                       !string.Equals(fileName, ".source.json", StringComparison.OrdinalIgnoreCase);
+            });
+
+        foreach (var jsonFile in rootJsonFiles)
+        {
+            var fileName = Path.GetFileName(jsonFile);
+            File.Copy(jsonFile, Path.Combine(targetRoot, fileName), overwrite: true);
+        }
+
+        var configDir = Path.Combine(mod.ModPath, "config");
+        if (Directory.Exists(configDir))
+        {
+            CopyDirectory(configDir, Path.Combine(targetRoot, "config"));
         }
     }
 
@@ -3368,10 +7649,365 @@ public sealed partial class VersionSettingsPageViewModel : FeaturePageViewModelB
 
         return "auto";
     }
+
+    private int GetModCheckConcurrency()
+    {
+        var settings = _settingsStore.Load();
+        var configured = settings.CollectionDownloadParallelism;
+        if (configured <= 0)
+        {
+            configured = 4;
+        }
+
+        return Math.Max(1, Math.Min(16, configured));
+    }
+
+    private static HttpClient CreateModNetworkHttpClient()
+    {
+        var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(20)
+        };
+
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("SVL-Avalonia-ModChecks/1.0");
+        return client;
+    }
+
+    private static void ApplyNexusHeaders(HttpRequestMessage request, AppUserSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.NexusOAuthAccessToken))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.NexusOAuthAccessToken);
+        }
+        else if (!string.IsNullOrWhiteSpace(settings.NexusApiKey))
+        {
+            request.Headers.TryAddWithoutValidation("apikey", settings.NexusApiKey);
+        }
+
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+        request.Headers.TryAddWithoutValidation("Application-Name", "Stardew Valley Launcher");
+        request.Headers.TryAddWithoutValidation("Application-Version", "1.0.0");
+        request.Headers.TryAddWithoutValidation("Protocol-Version", "1.0.0");
+    }
+
+    private static bool HasNexusCredential(AppUserSettings settings)
+    {
+        return !string.IsNullOrWhiteSpace(settings.NexusOAuthAccessToken) ||
+               !string.IsNullOrWhiteSpace(settings.NexusApiKey);
+    }
+
+    private static long GetJsonLongByCandidates(JsonElement element, params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!element.TryGetProperty(candidate, out var propertyElement))
+            {
+                continue;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.Number && propertyElement.TryGetInt64(out var value))
+            {
+                return value;
+            }
+
+            if (propertyElement.ValueKind == JsonValueKind.String && long.TryParse(propertyElement.GetString(), out value))
+            {
+                return value;
+            }
+        }
+
+        return 0;
+    }
+
+    private static bool WriteSourceCredential(string modDir, LocalSourceMetadata metadata)
+    {
+        if (string.IsNullOrWhiteSpace(modDir) || !Directory.Exists(modDir) || metadata == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var path = Path.Combine(modDir, "svl-source.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(metadata, s_sourceJsonOptions), Encoding.UTF8);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private sealed class LocalModUpdateCheckResult
+    {
+        public bool IsChecked { get; set; }
+
+        public bool HasUpdate { get; set; }
+
+        public bool IsTokenExpired { get; set; }
+
+        public string LatestVersion { get; set; } = string.Empty;
+
+        public string UpdateSource { get; set; } = string.Empty;
+
+        public string CurseforgeProjectId { get; set; } = string.Empty;
+
+        public string NexusModsProjectId { get; set; } = string.Empty;
+    }
+
+    private sealed class LocalSourceMetadata
+    {
+        [JsonPropertyName("platform")]
+        public string Platform { get; set; } = string.Empty;
+
+        [JsonPropertyName("projectId")]
+        public string ProjectId { get; set; } = string.Empty;
+
+        [JsonPropertyName("fileId")]
+        public string FileId { get; set; } = string.Empty;
+
+        [JsonPropertyName("modName")]
+        public string ModName { get; set; } = string.Empty;
+
+        [JsonPropertyName("fileName")]
+        public string FileName { get; set; } = string.Empty;
+
+        [JsonPropertyName("schemaVersion")]
+        public int SchemaVersion { get; set; } = 3;
+
+        [JsonPropertyName("localization")]
+        public LocalSourceLocalization? Localization { get; set; }
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    private sealed class LocalSourceLocalization
+    {
+        [JsonPropertyName("entityType")]
+        public string EntityType { get; set; } = string.Empty;
+
+        [JsonPropertyName("platform")]
+        public string Platform { get; set; } = string.Empty;
+
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("nameZhCn")]
+        public string NameZhCn { get; set; } = string.Empty;
+
+        [JsonPropertyName("nameSource")]
+        public string NameSource { get; set; } = string.Empty;
+
+        [JsonPropertyName("descriptionZhCn")]
+        public string DescriptionZhCn { get; set; } = string.Empty;
+
+        [JsonPropertyName("descriptionSource")]
+        public string DescriptionSource { get; set; } = string.Empty;
+
+        [JsonPropertyName("sourceUrl")]
+        public string SourceUrl { get; set; } = string.Empty;
+
+        [JsonPropertyName("updatedAt")]
+        public string UpdatedAt { get; set; } = string.Empty;
+
+        [JsonPropertyName("contributor")]
+        public string Contributor { get; set; } = string.Empty;
+    }
+
+    private sealed class LocalCommunityLocalizationEntry
+    {
+        [JsonPropertyName("entityType")]
+        public string EntityType { get; set; } = string.Empty;
+
+        [JsonPropertyName("platform")]
+        public string Platform { get; set; } = string.Empty;
+
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public LocalCommunityLocalizedText Name { get; set; } = new();
+
+        [JsonPropertyName("description")]
+        public LocalCommunityLocalizedText Description { get; set; } = new();
+
+        [JsonPropertyName("meta")]
+        public LocalCommunityLocalizationMeta Meta { get; set; } = new();
+    }
+
+    private sealed class LocalCommunityLocalizedText
+    {
+        [JsonPropertyName("zh-CN")]
+        public string ZhCn { get; set; } = string.Empty;
+
+        [JsonPropertyName("source")]
+        public string Source { get; set; } = string.Empty;
+    }
+
+    private sealed class LocalCommunityLocalizationMeta
+    {
+        [JsonPropertyName("contributor")]
+        public string Contributor { get; set; } = string.Empty;
+
+        [JsonPropertyName("sourceUrl")]
+        public string SourceUrl { get; set; } = string.Empty;
+
+        [JsonPropertyName("updatedAt")]
+        public string UpdatedAt { get; set; } = string.Empty;
+    }
+}
+
+public partial class ExportModSelectionItem : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected = true;
+
+    public string Name { get; set; } = string.Empty;
+
+    public string UniqueId { get; set; } = string.Empty;
+
+    public string Version { get; set; } = string.Empty;
+
+    public string Author { get; set; } = string.Empty;
+
+    public string ModPath { get; set; } = string.Empty;
+
+    public string DirectoryName { get; set; } = string.Empty;
+
+    public bool IsEnabled { get; set; }
+
+    public string SourcePlatform { get; set; } = "未知";
+
+    public string SourceProjectId { get; set; } = string.Empty;
+
+    public string SourceFileId { get; set; } = string.Empty;
+
+    public bool HasSourceCredential =>
+        !string.IsNullOrWhiteSpace(SourcePlatform) &&
+        !string.Equals(SourcePlatform, "未知", StringComparison.OrdinalIgnoreCase) &&
+        !string.IsNullOrWhiteSpace(SourceProjectId);
+
+    public string SourceDescription => HasSourceCredential
+        ? $"{SourcePlatform} #{SourceProjectId}"
+        : "无来源信息（需手动安装）";
+
+    public string SelectionKey => !string.IsNullOrWhiteSpace(UniqueId) ? UniqueId : DirectoryName;
+}
+
+public sealed class VersionSettingsExportConfig
+{
+    public string ModpackName { get; set; } = string.Empty;
+
+    public string ModpackVersion { get; set; } = "1.0.0";
+
+    public string ModpackAuthor { get; set; } = string.Empty;
+
+    public bool IncludeMods { get; set; } = true;
+
+    public bool IncludeModSettings { get; set; } = true;
+
+    public bool IncludeSvlLauncher { get; set; }
+
+    public string[] SelectedModKeys { get; set; } = Array.Empty<string>();
+}
+
+public sealed class VersionSettingsExportManifest
+{
+    public int SchemaVersion { get; set; } = 1;
+
+    public string ModpackName { get; set; } = string.Empty;
+
+    public string ModpackVersion { get; set; } = "1.0.0";
+
+    public string ModpackAuthor { get; set; } = string.Empty;
+
+    public DateTimeOffset ExportedAtUtc { get; set; }
+
+    public string InstancePath { get; set; } = string.Empty;
+
+    public bool IncludeMods { get; set; }
+
+    public bool IncludeModSettings { get; set; }
+
+    public bool IncludeSvlLauncher { get; set; }
+
+    public string Notes { get; set; } = string.Empty;
+
+    public List<VersionSettingsExportManifestMod> Mods { get; set; } = [];
+}
+
+public sealed class VersionSettingsExportManifestMod
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string UniqueId { get; set; } = string.Empty;
+
+    public string Version { get; set; } = string.Empty;
+
+    public string Author { get; set; } = string.Empty;
+
+    public string DirectoryName { get; set; } = string.Empty;
+
+    public string SourcePlatform { get; set; } = string.Empty;
+
+    public string SourceProjectId { get; set; } = string.Empty;
+
+    public string SourceFileId { get; set; } = string.Empty;
+
+    public bool RequiresManualInstall { get; set; }
+}
+
+internal sealed class ExportModPackageItem
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string UniqueId { get; set; } = string.Empty;
+
+    public string Version { get; set; } = string.Empty;
+
+    public string Author { get; set; } = string.Empty;
+
+    public string ModPath { get; set; } = string.Empty;
+
+    public string DirectoryName { get; set; } = string.Empty;
+
+    public string SourcePlatform { get; set; } = string.Empty;
+
+    public string SourceProjectId { get; set; } = string.Empty;
+
+    public string SourceFileId { get; set; } = string.Empty;
+
+    public bool HasSourceCredential =>
+        !string.IsNullOrWhiteSpace(SourcePlatform) &&
+        !string.Equals(SourcePlatform, "未知", StringComparison.OrdinalIgnoreCase) &&
+        !string.IsNullOrWhiteSpace(SourceProjectId);
 }
 
 public partial class ModManageItem : ObservableObject
 {
+    public ModManageItem()
+    {
+        FolderTags.CollectionChanged += (_, _) => NotifyTagChanged();
+        CustomTags.CollectionChanged += (_, _) => NotifyTagChanged();
+        DisplayDependencies.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasDisplayDependencies));
+        };
+    }
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
+    private bool _isBackupItem;
+
+    [ObservableProperty]
+    private string _backupOriginalFolderName = string.Empty;
+
+    [ObservableProperty]
+    private DateTime? _backupTime;
+
     [ObservableProperty]
     private string _displayName = string.Empty;
 
@@ -3397,6 +8033,21 @@ public partial class ModManageItem : ObservableObject
     private string _description = string.Empty;
 
     [ObservableProperty]
+    private string _sourceFileName = string.Empty;
+
+    [ObservableProperty]
+    private string _curseforgeProjectId = string.Empty;
+
+    [ObservableProperty]
+    private string _nexusModsProjectId = string.Empty;
+
+    [ObservableProperty]
+    private string _updateSource = string.Empty;
+
+    [ObservableProperty]
+    private string _localizationUpdatedAt = string.Empty;
+
+    [ObservableProperty]
     private bool _hasUpdate;
 
     [ObservableProperty]
@@ -3408,6 +8059,8 @@ public partial class ModManageItem : ObservableObject
     public ObservableCollection<string> FolderTags { get; } = [];
 
     public ObservableCollection<string> CustomTags { get; } = [];
+
+    public ObservableCollection<ModDependencyDisplayItem> DisplayDependencies { get; } = [];
 
     public IEnumerable<string> AllTags => FolderTags
         .Concat(CustomTags)
@@ -3422,12 +8075,12 @@ public partial class ModManageItem : ObservableObject
             var folderDisplay = FolderTags
                 .Where(tag => !string.IsNullOrWhiteSpace(tag))
                 .Select(tag => string.Equals(tag, prefixTag, StringComparison.OrdinalIgnoreCase)
-                    ? $"[Prefix] {tag}"
-                    : $"[Folder] {tag}");
+                    ? $"🧩 {tag}"
+                    : $"📂 {tag}");
 
             var customDisplay = CustomTags
                 .Where(tag => !string.IsNullOrWhiteSpace(tag))
-                .Select(tag => $"[Custom] {tag}");
+                .Select(tag => $"🏷 {tag}");
 
             return folderDisplay.Concat(customDisplay);
         }
@@ -3439,9 +8092,50 @@ public partial class ModManageItem : ObservableObject
 
     public string EnableStateText => IsEnabled ? "已启用" : "已禁用";
 
+    public string BackupTimeText => BackupTime is DateTime time ? time.ToString("yyyy-MM-dd HH:mm") : "未知";
+
+    public string PrimaryStateText => IsBackupItem ? "备份" : EnableStateText;
+
+    public string SecondaryStateText => IsBackupItem ? BackupTimeText : UpdateStatus;
+
+    public bool IsNormalItem => !IsBackupItem;
+
+    public bool HasDisplayDependencies => DisplayDependencies.Count > 0;
+
+    public bool HasBackupSummary => IsBackupItem && !string.IsNullOrWhiteSpace(BackupOriginalFolderName);
+
+    public string BackupSummaryText => HasBackupSummary ? $"来源目录：{BackupOriginalFolderName}" : string.Empty;
+
     partial void OnIsEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(EnableStateText));
+        OnPropertyChanged(nameof(PrimaryStateText));
+    }
+
+    partial void OnBackupTimeChanged(DateTime? value)
+    {
+        OnPropertyChanged(nameof(BackupTimeText));
+        OnPropertyChanged(nameof(SecondaryStateText));
+    }
+
+    partial void OnIsBackupItemChanged(bool value)
+    {
+        OnPropertyChanged(nameof(PrimaryStateText));
+        OnPropertyChanged(nameof(SecondaryStateText));
+        OnPropertyChanged(nameof(IsNormalItem));
+        OnPropertyChanged(nameof(HasBackupSummary));
+        OnPropertyChanged(nameof(BackupSummaryText));
+    }
+
+    partial void OnBackupOriginalFolderNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasBackupSummary));
+        OnPropertyChanged(nameof(BackupSummaryText));
+    }
+
+    partial void OnUpdateStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(SecondaryStateText));
     }
 
     public void NotifyTagChanged()

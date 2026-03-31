@@ -4,44 +4,142 @@
              x:Class="SVL.Avalonia.Views.ModDetailsPageView"
              x:DataType="vm:ModDetailsPageViewModel">
   <Border Classes="panel">
-    <StackPanel Spacing="8">
-      <TextBlock Text="{Binding Title}" Classes="heroTitle" />
-      <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
-      <Separator />
-      <TextBlock Text="资源名称: {Binding ResourceName}" />
-      <TextBlock Text="来源: {Binding ResourceSource}" />
-      <TextBlock Text="说明: {Binding ResourceNotes}" TextWrapping="Wrap" />
-      <TextBlock Text="状态: {Binding DetailsStatus}" Opacity="0.75" />
+    <ScrollViewer>
+      <StackPanel Spacing="12">
+        <Border Classes="hintCard">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Grid.Column="0" Spacing="8">
+              <TextBlock Text="{Binding DisplayResourceName}" Classes="heroTitle" TextWrapping="Wrap" />
+              <WrapPanel Orientation="Horizontal" ItemHeight="24">
+                <TextBlock Text="{Binding ResourceSource}" Classes="pill" />
+                <TextBlock Text="{Binding ResourceMetricTag}" Classes="pill" IsVisible="{Binding HasResourceMetricTag}" Margin="6,0,0,0" />
+                <TextBlock Text="{Binding ResourceTimeTag}" Classes="pill" IsVisible="{Binding HasResourceTimeTag}" Margin="6,0,0,0" />
+                <TextBlock Text="{Binding ResourceIdText, StringFormat=资源ID: {0}}" Classes="pill" Margin="6,0,0,0" />
+              </WrapPanel>
+              <TextBlock Text="{Binding DisplayResourceSummary}" TextWrapping="Wrap" Opacity="0.8" />
+              <TextBlock Text="{Binding DetailsStatus, StringFormat=状态: {0}}" Opacity="0.75" />
+            </StackPanel>
 
-      <TextBlock Text="可选版本" FontWeight="SemiBold" />
-      <Border Classes="hintCard">
-        <ScrollViewer Height="90">
-          <ItemsControl ItemsSource="{Binding VersionOptions}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </Border>
+            <StackPanel Grid.Column="1" Spacing="8" Margin="12,0,0,0" HorizontalAlignment="Right">
+              <Button Content="转到来源"
+                      Command="{Binding OpenSourcePageCommand}"
+                      IsEnabled="{Binding HasSourcePageUrl}"
+                      MinWidth="92" />
 
-      <TextBlock Text="依赖信息" FontWeight="SemiBold" />
-      <Border Classes="hintCard">
-        <ScrollViewer Height="90">
-          <ItemsControl ItemsSource="{Binding DependencyItems}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </Border>
+              <Grid ColumnDefinitions="Auto,Auto,Auto" IsVisible="{Binding HasLocalizedResourceName}">
+                <TextBlock Grid.Column="0" Text="名称" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,6,0" />
+                <Button Grid.Column="1" Content="中" Command="{Binding ShowLocalizedNameCommand}" MinWidth="42" Margin="0,0,6,0" />
+                <Button Grid.Column="2" Content="EN" Command="{Binding ShowSourceNameCommand}" MinWidth="42" />
+              </Grid>
 
-      <TextBlock Text="下载选项" FontWeight="SemiBold" />
-      <ComboBox ItemsSource="{Binding DownloadOptions}" SelectedItem="{Binding SelectedDownloadOption}" />
-      <Button Content="加入下载队列" Command="{Binding QueueDownloadCommand}" HorizontalAlignment="Left" />
-    </StackPanel>
+              <Grid ColumnDefinitions="Auto,Auto,Auto" IsVisible="{Binding HasLocalizedResourceSummary}">
+                <TextBlock Grid.Column="0" Text="描述" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,6,0" />
+                <Button Grid.Column="1" Content="中" Command="{Binding ShowLocalizedSummaryCommand}" MinWidth="42" Margin="0,0,6,0" />
+                <Button Grid.Column="2" Content="EN" Command="{Binding ShowSourceSummaryCommand}" MinWidth="42" />
+              </Grid>
+
+              <Border Classes="hintCard" Padding="8">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto" VerticalAlignment="Center">
+                  <TextBlock Grid.Column="0" Text="复制" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,6,0" />
+                  <Button Grid.Column="1" Content="名称" Command="{Binding CopyNameCommand}" MinWidth="56" Margin="0,0,6,0" />
+                  <TextBlock Grid.Column="2" Text="|" VerticalAlignment="Center" Opacity="0.45" Margin="0,0,6,0" />
+                  <Button Grid.Column="3" Content="{Binding CopyIdButtonText}" Command="{Binding CopyIdCommand}" MinWidth="50" Margin="0,0,6,0" />
+                </Grid>
+              </Border>
+
+              <Border Classes="hintCard" Padding="8">
+                <Grid ColumnDefinitions="*,Auto">
+                  <Button Grid.Column="0" Content="贡献本地化" Command="{Binding OpenLocalizationContributionPageCommand}" />
+                  <Button Grid.Column="1" Content="i" Command="{Binding ShowLocalizationContributorInfoCommand}" Width="30" Margin="8,0,0,0" />
+                </Grid>
+              </Border>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <Border Classes="hintCard">
+          <StackPanel Spacing="8">
+            <TextBlock Text="下载选项" Classes="hintTitle" />
+            <ComboBox ItemsSource="{Binding DownloadOptions}" SelectedItem="{Binding SelectedDownloadOption}" IsEnabled="{Binding HasDownloadOptions}" />
+            <Button Content="加入下载队列"
+                    Command="{Binding QueueDownloadCommand}"
+                    IsEnabled="{Binding CanQueueDownload}"
+                    HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="hintCard">
+          <StackPanel Spacing="8">
+            <TextBlock Text="可选版本" Classes="hintTitle" />
+            <TextBlock Text="暂无版本信息" Opacity="0.65" IsVisible="{Binding HasNoVersionOptions}" />
+            <ScrollViewer Height="120" IsVisible="{Binding HasVersionOptions}">
+              <ItemsControl ItemsSource="{Binding VersionOptions}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="hintCard">
+          <StackPanel Spacing="8">
+            <TextBlock Text="依赖信息" Classes="hintTitle" />
+            <TextBlock Text="暂无依赖信息" Opacity="0.65" IsVisible="{Binding HasNoDependencyItems}" />
+            <StackPanel Spacing="8" IsVisible="{Binding HasDependencyItems}">
+              <StackPanel Spacing="4" IsVisible="{Binding HasRequiredDependencyItems}">
+                <TextBlock Text="前置依赖（必需）" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding RequiredDependencyItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <StackPanel Spacing="4" IsVisible="{Binding HasHardConflictDependencyItems}">
+                <TextBlock Text="硬冲突" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding HardConflictDependencyItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <StackPanel Spacing="4" IsVisible="{Binding HasFunctionalOverlapDependencyItems}">
+                <TextBlock Text="功能重叠" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding FunctionalOverlapDependencyItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="hintCard" IsVisible="{Binding HasDownloadOptions}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="可下载条目" Classes="hintTitle" />
+            <ScrollViewer Height="150">
+              <ItemsControl ItemsSource="{Binding DownloadOptions}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
   </Border>
 </UserControl>

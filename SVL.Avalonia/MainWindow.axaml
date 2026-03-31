@@ -27,7 +27,7 @@
       <views:DownloadPageView />
     </DataTemplate>
     <DataTemplate DataType="vm:SettingsPageViewModel">
-      <views:SettingsPageView />
+      <views:SettingsPageView DataContext="{Binding}" />
     </DataTemplate>
     <DataTemplate DataType="vm:InstancesPageViewModel">
       <views:InstancesPageView />

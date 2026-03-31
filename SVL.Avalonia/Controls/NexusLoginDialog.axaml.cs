@@ -19,6 +19,7 @@ public partial class NexusLoginDialog : Window
         {
             viewModel.RequestClose -= HandleRequestClose;
             viewModel.RequestClose += HandleRequestClose;
+            _ = viewModel.InitializeAsync();
         }
     }
 

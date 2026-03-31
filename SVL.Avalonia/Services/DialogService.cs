@@ -4,7 +4,10 @@ using Avalonia.Platform.Storage;
 using SVL.Avalonia.Controls;
 using SVL.Avalonia.Models;
 using SVL.Avalonia.ViewModels;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Windows.Input;
 using System.Threading.Tasks;
 
@@ -77,11 +80,27 @@ public sealed class DialogService
         await dialog.ShowDialog(owner);
     }
 
-    public async Task<NexusLoginResult?> ShowNexusLoginAsync(string existingApiKey, NexusAuthService nexusAuthService, NexusOAuthService nexusOAuthService)
+    public async Task<NexusLoginResult?> ShowNexusLoginAsync(
+        string existingApiKey,
+        string existingOAuthAccessToken,
+        string existingOAuthRefreshToken,
+        string existingUserName,
+        string existingMembershipType,
+        int existingUserId,
+        NexusAuthService nexusAuthService,
+        NexusOAuthService nexusOAuthService)
     {
         var dialog = new NexusLoginDialog
         {
-            DataContext = new NexusLoginDialogViewModel(nexusAuthService, nexusOAuthService, existingApiKey)
+            DataContext = new NexusLoginDialogViewModel(
+                nexusAuthService,
+                nexusOAuthService,
+                existingApiKey,
+                existingOAuthAccessToken,
+                existingOAuthRefreshToken,
+                existingUserName,
+                existingMembershipType,
+                existingUserId)
         };
 
         var owner = GetMainWindow();
@@ -474,6 +493,12 @@ public sealed class DialogService
         string author,
         string description,
         string? folderPath = null,
+        string? sourceFileName = null,
+        string? uniqueId = null,
+        bool isEnabled = true,
+        bool hasUpdate = false,
+        IEnumerable<object>? dependencies = null,
+        Action<object?>? onDependencyClick = null,
         string title = "本地 Mod 详情")
     {
         var owner = GetMainWindow();
@@ -488,10 +513,24 @@ public sealed class DialogService
             ModName = modName,
             Version = version,
             Author = author,
-            Description = description
+            Description = description,
+            UniqueId = string.IsNullOrWhiteSpace(uniqueId) ? "无" : uniqueId,
+            ModPath = folderPath ?? string.Empty,
+            SourceFileName = string.IsNullOrWhiteSpace(sourceFileName) ? "无" : sourceFileName,
+            HasUpdate = hasUpdate,
+            IsEnabledText = isEnabled ? "已启用" : "已禁用",
+            IsEnabledBackground = isEnabled ? "#D2A679" : "#9E9E9E",
+            Dependencies = dependencies,
+            HasDependencies = dependencies?.Any() == true,
+            CanOpenFolder = !string.IsNullOrWhiteSpace(folderPath)
         };
 
         var host = CreateHostedDialogWindow(title, dialog);
+        host.SizeToContent = SizeToContent.Width;
+        host.Height = 680;
+        host.MinHeight = 460;
+        host.MaxHeight = 820;
+        host.CanResize = true;
         dialog.OpenFolderCommand = new DelegateCommand(_ =>
         {
             if (!string.IsNullOrWhiteSpace(folderPath))
@@ -499,9 +538,55 @@ public sealed class DialogService
                 TryOpenExternal(folderPath);
             }
         });
+        dialog.OpenDependencyCommand = new DelegateCommand(parameter =>
+        {
+            onDependencyClick?.Invoke(parameter);
+            host.Close();
+        });
+        dialog.OpenLocalizationContributionCommand = new DelegateCommand(_ =>
+        {
+            if (!string.IsNullOrWhiteSpace(uniqueId))
+            {
+                var url = $"https://svl.qzz.io/contribute.html?uniqueid={Uri.EscapeDataString(uniqueId)}&rawtitle={Uri.EscapeDataString(modName)}&rawdescription={Uri.EscapeDataString(description ?? string.Empty)}&auto=1";
+                TryOpenExternal(url);
+                return;
+            }
+
+            TryOpenExternal("https://svl.qzz.io/contribute.html");
+        });
+        dialog.ShowLocalizationContributorInfoCommand = new DelegateCommand(_ =>
+        {
+            _ = ShowMessageAsync(
+                "贡献本地化",
+                "点击“贡献本地化”可打开社区贡献页面，为当前 Mod 提交中文名称与描述。\n\n若已在列表中看到依赖项，可先点击依赖进行快速筛选和核对。");
+        });
         dialog.CloseCommand = new DelegateCommand(_ => host.Close());
 
         await host.ShowDialog(owner);
+    }
+
+    public async Task<string?> BrowseFolderPathAsync(string title)
+    {
+        var owner = GetMainWindow();
+        if (owner == null)
+        {
+            return null;
+        }
+
+        return await PickFolderPathAsync(owner, title);
+    }
+
+    public async Task<string?> BrowseFilePathAsync(
+        string title,
+        IReadOnlyList<FilePickerFileType>? fileTypes = null)
+    {
+        var owner = GetMainWindow();
+        if (owner == null)
+        {
+            return null;
+        }
+
+        return await PickFilePathAsync(owner, title, fileTypes);
     }
 
     private static Window CreateHostedDialogWindow(string title, Control content)

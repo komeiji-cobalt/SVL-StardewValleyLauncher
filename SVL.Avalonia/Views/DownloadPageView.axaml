@@ -9,12 +9,13 @@
              x:Class="SVL.Avalonia.Views.DownloadPageView"
              x:Name="Root"
              x:DataType="vm:DownloadPageViewModel">
-  <Grid ColumnDefinitions="280,*,330">
+  <Grid ColumnDefinitions="280,*">
     <Border Grid.Column="0" Classes="panel">
       <StackPanel Spacing="8">
         <TextBlock Text="{Binding DownloadCategoryTitleText}" Classes="sectionTitle" />
         <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Smapi}">
           <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.ColumnSpan="3" Background="#33D4C4A8" CornerRadius="6" IsVisible="{Binding IsSmapiCategory}" />
             <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsSmapiCategory}" />
             <Image Grid.Column="1" Source="{Binding CategorySmapiIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
             <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
@@ -25,6 +26,7 @@
         </Button>
         <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Mods}">
           <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.ColumnSpan="3" Background="#33D4C4A8" CornerRadius="6" IsVisible="{Binding IsModsCategory}" />
             <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsModsCategory}" />
             <Image Grid.Column="1" Source="{Binding CategoryModsIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
             <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
@@ -35,6 +37,7 @@
         </Button>
         <Button Classes="downloadCategory" Command="{Binding SelectCategoryCommand}" CommandParameter="{x:Static model:DownloadCategory.Modpacks}">
           <Grid ColumnDefinitions="4,Auto,*">
+            <Border Grid.ColumnSpan="3" Background="#33D4C4A8" CornerRadius="6" IsVisible="{Binding IsModpacksCategory}" />
             <Border Grid.Column="0" Background="#FFD47748" CornerRadius="2" IsVisible="{Binding IsModpacksCategory}" />
             <Image Grid.Column="1" Source="{Binding CategoryModpacksIconSource, Converter={StaticResource AssetImageConverter}}" Width="18" Height="18" VerticalAlignment="Center" Margin="8,0,0,0" />
             <StackPanel Grid.Column="2" Spacing="1" Margin="8,0,0,0">
@@ -152,37 +155,60 @@
     </Border>
 
     <Border Grid.Column="1" Classes="panel" Margin="12,0,0,0">
-      <StackPanel Spacing="12">
-        <TextBlock Text="{Binding Title}" Classes="heroTitle" />
-        <TextBlock>
-          <Run Text="{Binding StatusPrefixText}" />
-          <Run Text="{Binding Status}" />
-        </TextBlock>
+      <Grid RowDefinitions="Auto,Auto,*">
 
-        <Border Classes="hintCard">
+        <Border Grid.Row="0" Classes="hintCard" Margin="0,0,0,12" IsVisible="{Binding IsSmapiCategory}">
           <StackPanel Spacing="8">
-            <TextBlock Text="{Binding NxmCardTitleText}" Classes="hintTitle" />
-            <TextBox Text="{Binding NxmLinkInput}" Watermark="{Binding NxmInputWatermarkText}" />
-            <Grid ColumnDefinitions="Auto,*">
-              <Button Grid.Column="0" Content="{Binding NxmImportButtonText}" Command="{Binding ImportNxmLinkCommand}" Margin="0,0,8,0" />
-              <TextBlock Grid.Column="1" Text="{Binding NxmImportStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+              <TextBlock Grid.Column="0" Text="{Binding SmapiSearchTitleText}" Classes="hintTitle" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                <Run Text="{Binding StatusPrefixText}" />
+                <Run Text="{Binding Status}" />
+              </TextBlock>
             </Grid>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding SmapiSearchText}" Watermark="{Binding SmapiSearchWatermarkText}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchSmapiCommand}" />
+            </Grid>
+            <ComboBox ItemsSource="{Binding SmapiSources}" SelectedItem="{Binding SelectedSmapiSource}" />
           </StackPanel>
         </Border>
 
-        <Border Classes="hintCard">
+        <Border Grid.Row="0" Classes="hintCard" Margin="0,0,0,12" IsVisible="{Binding IsModsCategory}">
           <StackPanel Spacing="8">
-            <TextBlock Text="{Binding UrlCardTitleText}" Classes="hintTitle" />
-            <TextBox Text="{Binding DownloadUrlInput}" Watermark="{Binding UrlInputWatermarkText}" />
-            <TextBox Text="{Binding DownloadFileNameInput}" Watermark="{Binding UrlFileNameWatermarkText}" />
-            <Grid ColumnDefinitions="Auto,*">
-              <Button Grid.Column="0" Content="{Binding UrlQueueButtonText}" Command="{Binding QueueUrlDownloadCommand}" Margin="0,0,8,0" />
-              <TextBlock Grid.Column="1" Text="{Binding UrlDownloadStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding ModSearchTitleText}" Classes="hintTitle" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding ModSearchText}" Watermark="{Binding ModSearchWatermarkText}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchModsCommand}" />
             </Grid>
+            <Grid ColumnDefinitions="*,*,*,Auto" Margin="0,2,0,0">
+              <TextBlock Grid.Column="0" Text="来源" FontSize="12" FontWeight="SemiBold" Margin="0,0,8,2" />
+              <TextBlock Grid.Column="1" Text="版本" FontSize="12" FontWeight="SemiBold" Margin="0,0,8,2" />
+              <TextBlock Grid.Column="2" Text="类型" FontSize="12" FontWeight="SemiBold" Margin="0,0,8,2" />
+              <TextBlock Grid.Column="3" Text="操作" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2" />
+            </Grid>
+            <Grid ColumnDefinitions="*,*,*,Auto">
+              <ComboBox Grid.Column="0" ItemsSource="{Binding ModSources}" SelectedItem="{Binding SelectedModSource}" Margin="0,0,8,0" ToolTip.Tip="来源筛选：全部/NexusMods/Curseforge" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding ModGameVersions}" SelectedItem="{Binding SelectedModGameVersion}" Margin="0,0,8,0" ToolTip.Tip="游戏版本筛选：按兼容版本过滤" />
+              <ComboBox Grid.Column="2" ItemsSource="{Binding ModTypes}" SelectedItem="{Binding SelectedModType}" Margin="0,0,8,0" ToolTip.Tip="类型筛选：按功能类别过滤" />
+              <Button Grid.Column="3" Content="重置条件" Command="{Binding ResetModFiltersCommand}" MinWidth="92" />
+            </Grid>
+            <TextBlock Text="{Binding SelectedModSourceDescription}" Opacity="0.72" FontSize="11" />
           </StackPanel>
         </Border>
 
-        <Border Classes="hintCard" IsVisible="{Binding ShowGamePathWarning}">
+        <Border Grid.Row="0" Classes="hintCard" Margin="0,0,0,12" IsVisible="{Binding IsModpacksCategory}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="搜索 Modpack" Classes="hintTitle" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding ModpackSearchText}" Watermark="输入 Modpack 关键词" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchModpacksCommand}" />
+            </Grid>
+            <TextBlock Text="结果显示在下方列表，支持分页浏览。" Opacity="0.75" />
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Classes="hintCard" Margin="0,0,0,12" IsVisible="{Binding ShowGamePathWarning}">
           <Grid ColumnDefinitions="*,Auto" Margin="0">
             <StackPanel Grid.Column="0" Spacing="4">
               <TextBlock Text="{Binding GamePathWarningTitleText}" Classes="hintTitle" />
@@ -196,67 +222,208 @@
           </Grid>
         </Border>
 
-      </StackPanel>
-    </Border>
+        <ScrollViewer Grid.Row="2">
+          <StackPanel Spacing="12">
+            <Border Classes="hintCard" IsVisible="{Binding IsSmapiCategory}">
+              <StackPanel Spacing="10">
+                <TextBlock Text="SMAPI 搜索结果" Classes="hintTitle" />
 
-    <Border Grid.Column="2" Classes="panel" Margin="12,0,0,0">
-      <ScrollViewer>
-        <StackPanel Spacing="12">
-          <Border Classes="hintCard">
-            <StackPanel Spacing="4">
-              <TextBlock Text="任务总览" Classes="hintTitle" />
-              <TextBlock Text="{Binding ActiveTasks.Count, StringFormat=进行中: {0}}" />
-              <TextBlock Text="{Binding FinishedTasks.Count, StringFormat=历史: {0}}" />
-              <TextBlock Text="{Binding SelectedTaskHint}" Opacity="0.75" TextWrapping="Wrap" />
-            </StackPanel>
-          </Border>
+                <StackPanel Spacing="8" IsVisible="{Binding HasSmapiGithubItems}">
+                  <TextBlock Text="GitHub" Classes="sectionTitle" />
+                  <ItemsControl ItemsSource="{Binding SmapiGithubItems}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Classes="hintCard" Margin="0,0,0,10">
+                          <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" Width="72" Height="72" Background="#FFF7D38A" CornerRadius="6" BorderBrush="#FFD4C4A8" BorderThickness="1">
+                              <Image Source="{Binding IconSource, Converter={StaticResource AssetImageConverter}}" Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
+                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                              <WrapPanel Orientation="Horizontal" ItemHeight="24" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SourceTag}" Classes="pill" />
+                                <TextBlock Text="{Binding MetricTag}" Classes="pill" IsVisible="{Binding HasMetricTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding TimeTag}" Classes="pill" IsVisible="{Binding HasTimeTag}" Margin="6,0,0,0" />
+                              </WrapPanel>
+                              <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Opacity="0.75" />
+                            </StackPanel>
+                                <Button Grid.Column="2"
+                                  Content="进入详情"
+                                  Command="{Binding DataContext.OpenCatalogItemDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
 
-          <Border Classes="hintCard" IsVisible="{Binding IsSmapiCategory}">
-          <StackPanel Spacing="8">
-            <TextBlock Text="{Binding SmapiSearchTitleText}" Classes="hintTitle" />
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBox Grid.Column="0" Text="{Binding SmapiSearchText}" Watermark="{Binding SmapiSearchWatermarkText}" Margin="0,0,8,0" />
-              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchSmapiCommand}" />
-            </Grid>
-            <ComboBox ItemsSource="{Binding SmapiSources}" SelectedItem="{Binding SelectedSmapiSource}" />
-            <Button Content="{Binding SelectFirstResultButtonText}" Command="{Binding SelectFirstSearchResultCommand}" HorizontalAlignment="Left" />
-            <ItemsControl ItemsSource="{Binding SearchResults}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="• {Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                <StackPanel Spacing="8" IsVisible="{Binding HasSmapiNexusModsItems}">
+                  <TextBlock Text="NexusMods" Classes="sectionTitle" />
+                  <ItemsControl ItemsSource="{Binding SmapiNexusModsItems}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Classes="hintCard" Margin="0,0,0,10">
+                          <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" Width="72" Height="72" Background="#FFF7D38A" CornerRadius="6" BorderBrush="#FFD4C4A8" BorderThickness="1">
+                              <Image Source="{Binding IconSource, Converter={StaticResource AssetImageConverter}}" Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
+                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                              <WrapPanel Orientation="Horizontal" ItemHeight="24" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SourceTag}" Classes="pill" />
+                                <TextBlock Text="{Binding MetricTag}" Classes="pill" IsVisible="{Binding HasMetricTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding TimeTag}" Classes="pill" IsVisible="{Binding HasTimeTag}" Margin="6,0,0,0" />
+                              </WrapPanel>
+                              <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Opacity="0.75" />
+                            </StackPanel>
+                                <Button Grid.Column="2"
+                                  Content="进入详情"
+                                  Command="{Binding DataContext.OpenCatalogItemDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding HasSmapiCurseforgeItems}">
+                  <TextBlock Text="Curseforge" Classes="sectionTitle" />
+                  <ItemsControl ItemsSource="{Binding SmapiCurseforgeItems}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Classes="hintCard" Margin="0,0,0,10">
+                          <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0" Width="72" Height="72" Background="#FFF7D38A" CornerRadius="6" BorderBrush="#FFD4C4A8" BorderThickness="1">
+                              <Image Source="{Binding IconSource, Converter={StaticResource AssetImageConverter}}" Width="64" Height="64" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
+                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                              <WrapPanel Orientation="Horizontal" ItemHeight="24" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SourceTag}" Classes="pill" />
+                                <TextBlock Text="{Binding MetricTag}" Classes="pill" IsVisible="{Binding HasMetricTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding TimeTag}" Classes="pill" IsVisible="{Binding HasTimeTag}" Margin="6,0,0,0" />
+                              </WrapPanel>
+                              <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Opacity="0.75" />
+                            </StackPanel>
+                                <Button Grid.Column="2"
+                                  Content="进入详情"
+                                  Command="{Binding DataContext.OpenCatalogItemDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="hintCard" IsVisible="{Binding IsNonSmapiCategory}">
+              <Grid RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0" Text="{Binding CatalogListTitleText}" Classes="hintTitle" Margin="0,0,0,8" />
+                <Grid Grid.Row="1">
+                  <TextBlock Text="{Binding CatalogNoItemsText}" Opacity="0.7" IsVisible="{Binding HasNoCategoryItems}" />
+                  <ScrollViewer IsVisible="{Binding HasCategoryItems}">
+                    <ItemsControl ItemsSource="{Binding CategoryItems}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border Classes="hintCard" Margin="0,0,0,10" BorderBrush="#44D2A679" BorderThickness="1" Background="#0CF7D38A">
+                            <StackPanel Spacing="8">
+                              <Grid ColumnDefinitions="72,*,Auto" RowDefinitions="Auto,Auto">
+                                <Border Grid.RowSpan="2" Grid.Column="0" Width="64" Height="64" Background="#FFF7D38A" CornerRadius="6" BorderBrush="#FFD4C4A8" BorderThickness="1" Margin="0,2,10,0">
+                                  <Image Source="{Binding IconSource, Converter={StaticResource AssetImageConverter}}" Width="60" Height="60" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+
+                                <Grid Grid.Column="1" ColumnDefinitions="*" Margin="0,0,0,4">
+                                  <TextBlock Grid.Column="0" Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,8,0" />
+                                </Grid>
+
+                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*" Margin="0,0,0,2">
+                                  <TextBlock Grid.Column="0" Text="{Binding DisplaySummary}" TextWrapping="Wrap" Opacity="0.75" Margin="0,0,8,0" />
+                                </Grid>
+
+                                <StackPanel Grid.Column="2" Grid.RowSpan="2" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Top">
+                                  <Button Content="查看详情"
+                                          Command="{Binding DataContext.OpenCatalogItemDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    MinWidth="88"
+                                    Height="30" />
+                                  <Button Content="{Binding LocalizationToggleButtonText}"
+                                          Command="{Binding DataContext.ToggleLocalizedDisplayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    MinWidth="64"
+                                    Height="30" />
+                                </StackPanel>
+                              </Grid>
+
+                              <WrapPanel Orientation="Horizontal" ItemHeight="24" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SourceTag}" Classes="pill" />
+                                <TextBlock Text="{Binding Stat}" Classes="pill" IsVisible="{Binding HasMetricTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding TimeTag}" Classes="pill" IsVisible="{Binding HasTimeTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding ModTypeTag}" Classes="pill" IsVisible="{Binding HasModTypeTag}" Margin="6,0,0,0" />
+                                <TextBlock Text="{Binding GameVersionTag}" Classes="pill" IsVisible="{Binding HasGameVersionTag}" Margin="6,0,0,0" />
+                              </WrapPanel>
+
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Grid>
+              </Grid>
+            </Border>
+
+            <Border Classes="hintCard" IsVisible="{Binding IsModsPageable}">
+              <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                <Button Grid.Column="0"
+                        Content="上一页"
+                        Command="{Binding GoToPreviousModPageCommand}"
+                        IsEnabled="{Binding CanGoToPreviousModPage}"
+                        MinWidth="82" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding ModPageInfoText}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold" />
+                <Button Grid.Column="2"
+                        Content="下一页"
+                        Command="{Binding GoToNextModPageCommand}"
+                        IsEnabled="{Binding CanGoToNextModPage}"
+                        MinWidth="82" />
+              </Grid>
+            </Border>
+
+            <Border Classes="hintCard" IsVisible="{Binding IsModpacksPageable}">
+              <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                <Button Grid.Column="0"
+                        Content="上一页"
+                        Command="{Binding GoToPreviousModpackPageCommand}"
+                        IsEnabled="{Binding CanGoToPreviousModpackPage}"
+                        MinWidth="82" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding ModpackPageInfoText}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold" />
+                <Button Grid.Column="2"
+                        Content="下一页"
+                        Command="{Binding GoToNextModpackPageCommand}"
+                        IsEnabled="{Binding CanGoToNextModpackPage}"
+                        MinWidth="82" />
+              </Grid>
+            </Border>
           </StackPanel>
-        </Border>
-
-          <Border Classes="hintCard" IsVisible="{Binding IsModsCategory}">
-          <StackPanel Spacing="8">
-            <TextBlock Text="{Binding ModSearchTitleText}" Classes="hintTitle" />
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBox Grid.Column="0" Text="{Binding ModSearchText}" Watermark="{Binding ModSearchWatermarkText}" Margin="0,0,8,0" />
-              <Button Grid.Column="1" Content="{Binding SearchButtonText}" Command="{Binding SearchModsCommand}" />
-            </Grid>
-            <ComboBox ItemsSource="{Binding ModSources}" SelectedItem="{Binding SelectedModSource}" />
-            <Button Content="{Binding OpenModSearchButtonText}" Command="{Binding OpenModSearchPageCommand}" HorizontalAlignment="Left" />
-          </StackPanel>
-        </Border>
-
-          <Border Classes="hintCard" IsVisible="{Binding IsModpacksCategory}">
-          <StackPanel Spacing="8">
-            <TextBlock Text="{Binding ModpackImportTitleText}" Classes="hintTitle" />
-            <TextBlock Text="{Binding ModpackImportDescriptionText}" TextWrapping="Wrap" />
-            <TextBox Text="{Binding ModpackUrlInput}" Watermark="{Binding ModpackUrlWatermarkText}" />
-            <TextBox Text="{Binding ModpackFileNameInput}" Watermark="{Binding ModpackFileNameWatermarkText}" />
-            <Grid ColumnDefinitions="Auto,*">
-              <Button Grid.Column="0" Content="{Binding ModpackImportButtonText}" Command="{Binding QueueModpackUrlDownloadCommand}" Margin="0,0,8,0" />
-              <TextBlock Grid.Column="1" Text="{Binding ModpackImportStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
-            </Grid>
-            <Button Content="{Binding OpenModpackSearchButtonText}" Command="{Binding OpenModpackSearchPageCommand}" HorizontalAlignment="Left" />
-          </StackPanel>
-        </Border>
-        </StackPanel>
-      </ScrollViewer>
+        </ScrollViewer>
+      </Grid>
     </Border>
   </Grid>
 </UserControl>

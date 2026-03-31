@@ -18,6 +18,14 @@ public sealed class AppUserSettings
 
     public bool EnableDownloadCache { get; set; } = true;
 
+    public bool EnableDownloadProxy { get; set; }
+
+    public string DownloadProxyUrl { get; set; } = string.Empty;
+
+    public string DownloadProxyUserName { get; set; } = string.Empty;
+
+    public string DownloadProxyPassword { get; set; } = string.Empty;
+
     public bool EnableDownloadFloatingTaskButton { get; set; } = true;
 
     public bool EnableAutoUpdateCheck { get; set; } = true;

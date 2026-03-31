@@ -28,6 +28,136 @@
       <Setter Property="BorderBrush" Value="#FFB9895F" />
       <Setter Property="BorderThickness" Value="2" />
     </Style>
+
+    <Style Selector="Button.segmentMain">
+      <Setter Property="Height" Value="38" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="#00FFFFFF" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.segmentMain.selected">
+      <Setter Property="Background" Value="#2ED2A679" />
+    </Style>
+
+    <Style Selector="Button.segmentSub">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="#00FFFFFF" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.segmentSub.selected">
+      <Setter Property="Background" Value="#22D2A679" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.toolbarAction">
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.paginationButton">
+      <Setter Property="Height" Value="30" />
+      <Setter Property="MinWidth" Value="38" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Border.modRow">
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.16" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.modRow:pointerover">
+      <Setter Property="Background" Value="#14D2A679" />
+      <Setter Property="BorderBrush" Value="#55D2A679" />
+    </Style>
+
+    <Style Selector="StackPanel.rowMeta">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="True" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Delay="0:0:0.05" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.modRow:pointerover StackPanel.rowMeta">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+
+    <Style Selector="StackPanel.rowHoverActions">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Delay="0:0:0.05" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.modRow:pointerover StackPanel.rowHoverActions">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+
+    <Style Selector="Button.rowAction">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="#00FFFFFF" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="4,0,0,0" />
+    </Style>
+
+    <Style Selector="Button.rowAction:pointerover">
+      <Setter Property="Background" Value="#28D2A679" />
+    </Style>
+
+    <Style Selector="Button.rowQuickAction">
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="#66B89B7F" />
+      <Setter Property="Background" Value="#0FD2A679" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="FontSize" Value="11" />
+    </Style>
+
+    <Style Selector="Button.rowQuickAction:pointerover">
+      <Setter Property="Background" Value="#28D2A679" />
+    </Style>
+
+    <Style Selector="ListBox.modList > ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="#14D2A679" />
+      <Setter Property="BorderBrush" Value="#55D2A679" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
   </UserControl.Styles>
 
   <Grid ColumnDefinitions="260,1,*">
@@ -110,8 +240,11 @@
 
     <Border Grid.Column="1" Background="#66B89B7F" Margin="0,16" />
 
-    <Grid Grid.Column="2" Margin="12,12,12,12">
-      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <Grid Grid.Column="2" Margin="12,12,12,12" RowDefinitions="*,Auto">
+      <ScrollViewer Grid.Row="0"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto"
+                    Padding="0,0,10,0">
         <StackPanel Spacing="12">
           <Border Classes="hintCard" IsVisible="{Binding IsOverviewSection}" Padding="14,12">
             <StackPanel Spacing="10">
@@ -354,233 +487,356 @@
 
             <StackPanel Spacing="10" IsVisible="{Binding CanManageMods}">
 
-            <Border Classes="hintCard" Padding="14,12">
-              <StackPanel Spacing="10">
-                <TextBlock Text="{Binding ModManageTitleText}" Classes="sectionTitle" />
-                <Grid ColumnDefinitions="*,Auto">
-                  <Grid Grid.Column="0" ColumnDefinitions="*,Auto">
+              <Border Classes="hintCard" Padding="14,12">
+                <StackPanel Spacing="10">
+                  <Border BorderBrush="#66B89B7F" BorderThickness="1" CornerRadius="8" Background="#0FD2A679">
+                    <Grid ColumnDefinitions="*,1,*">
+                      <Button Grid.Column="0"
+                              Classes="segmentMain"
+                              Classes.selected="{Binding IsModsTab}"
+                              Command="{Binding SwitchModsTabCommand}"
+                              Content="{Binding ModsTabText}" />
+                      <Border Grid.Column="1" Background="#66B89B7F" />
+                      <Button Grid.Column="2"
+                              Classes="segmentMain"
+                              Classes.selected="{Binding IsBackupTab}"
+                              Command="{Binding SwitchBackupTabCommand}"
+                              Content="{Binding BackupTabText}" />
+                    </Grid>
+                  </Border>
+
+                  <Border BorderBrush="#44B89B7F" BorderThickness="1" CornerRadius="8" IsVisible="{Binding IsModsTab}">
+                    <Grid ColumnDefinitions="*,1,*,1,*,1,*">
+                      <Button Grid.Column="0" Classes="segmentSub" Classes.selected="{Binding IsAllFilter}" Content="{Binding AllFilterText}" Command="{Binding SetAllFilterCommand}" />
+                      <Border Grid.Column="1" Background="#44B89B7F" />
+                      <Button Grid.Column="2" Classes="segmentSub" Classes.selected="{Binding IsEnabledFilter}" Content="{Binding EnabledFilterText}" Command="{Binding SetEnabledFilterCommand}" />
+                      <Border Grid.Column="3" Background="#44B89B7F" />
+                      <Button Grid.Column="4" Classes="segmentSub" Classes.selected="{Binding IsDisabledFilter}" Content="{Binding DisabledFilterText}" Command="{Binding SetDisabledFilterCommand}" />
+                      <Border Grid.Column="5" Background="#44B89B7F" />
+                      <Button Grid.Column="6" Classes="segmentSub" Classes.selected="{Binding IsUpdatableFilter}" Content="{Binding UpdatableFilterText}" Command="{Binding SetUpdatableFilterCommand}" />
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="hintCard" Padding="14,12">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="Mod搜索" Classes="sectionTitle" />
+                  <Grid ColumnDefinitions="*,Auto,Auto">
                     <TextBox Grid.Column="0"
-                           Watermark="搜索 Mod"
+                             Text="{Binding SearchKeyword}"
+                             Watermark="搜索 Mod（支持 tag:/author:/name: 等语法）"
                              Height="36"
-                             IsEnabled="False"
-                           ToolTip.Tip="搜索行为将在后续切片对齐旧版逻辑"
                              VerticalContentAlignment="Center"
                              Padding="10,0" />
                     <Button Grid.Column="1"
                             Content="清空"
-                            Margin="8,0,0,0"
-                            IsEnabled="False"
-                          ToolTip.Tip="清空搜索行为将在后续切片接入"
+                            Command="{Binding ClearSearchKeywordCommand}"
                             MinWidth="68" />
+                    <Button Grid.Column="2"
+                            Content="高级语法"
+                            Command="{Binding ShowAdvancedSearchHelpCommand}"
+                            MinWidth="92" />
                   </Grid>
-                  <Button Grid.Column="1"
-                          Content="高级语法"
-                          IsEnabled="False"
-                          MinWidth="92"
-                          ToolTip.Tip="搜索语法将在行为对齐切片中接入" />
-                </Grid>
-              </StackPanel>
-            </Border>
+                </StackPanel>
+              </Border>
 
-            <Border Classes="hintCard" Padding="14,12">
-              <StackPanel Spacing="10">
-                <TextBlock Text="Tag 筛选与管理" Classes="sectionTitle" />
-
-                <ComboBox ItemsSource="{Binding TagFilters}" SelectedItem="{Binding SelectedTagFilter}">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ModTagFilterOption">
-                      <TextBlock Text="{Binding DisplayText}" />
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-
-                <ItemsControl ItemsSource="{Binding TagPanelItems}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ModTagPanelItem">
-                      <CheckBox Content="{Binding DisplayText}"
-                                IsChecked="{Binding IsSelected}"
-                                Margin="0,0,8,8" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <TextBlock Text="自定义Tag" FontWeight="SemiBold" />
-                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                  <TextBox Grid.Row="0" Grid.Column="0" Text="{Binding NewCustomTagName}" Watermark="输入新标签名称" Margin="0,0,8,8" />
-                  <Button Grid.Row="0" Grid.Column="1" Content="新增" Command="{Binding AddCustomTagCommand}" MinWidth="70" />
-
-                  <ComboBox Grid.Row="1" Grid.Column="0" ItemsSource="{Binding CustomTagDefinitions}" SelectedItem="{Binding SelectedCustomTag}" Margin="0,0,8,0">
-                    <ComboBox.ItemTemplate>
-                      <DataTemplate x:DataType="vm:ModTagFilterOption">
-                        <TextBlock Text="{Binding Name}" />
-                      </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                  </ComboBox>
-                  <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                    <Button Content="改名" Command="{Binding RenameCustomTagCommand}" IsEnabled="{Binding HasSelectedCustomTag}" />
-                    <Button Content="删除" Command="{Binding DeleteCustomTagCommand}" IsEnabled="{Binding HasSelectedCustomTag}" />
-                  </StackPanel>
-                </Grid>
-
-                <TextBox Text="{Binding RenameCustomTagName}" Watermark="重命名选中标签" IsEnabled="{Binding HasSelectedCustomTag}" />
-
-                <WrapPanel>
-                  <Button Content="绑定选中标签"
-                          Command="{Binding BatchBindSelectedTagsToSelectedModCommand}"
-                          IsEnabled="{Binding CanBatchAddSelectedTags}"
-                          Margin="0,0,8,8" />
-                  <Button Content="解绑选中标签"
-                          Command="{Binding BatchUnbindSelectedTagsFromSelectedModCommand}"
-                          IsEnabled="{Binding CanBatchRemoveSelectedTags}"
-                          Margin="0,0,8,8" />
-                </WrapPanel>
-
-                <TextBlock Text="{Binding InlineTagHint}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
-              </StackPanel>
-            </Border>
-
-            <Border Classes="hintCard" Padding="14,12">
-              <WrapPanel>
-                <Button Content="{Binding OpenModsFolderButtonText}"
-                        Command="{Binding OpenCurrentInstanceModsFolderCommand}"
-                        Margin="0,0,8,8" />
-                <Button Content="{Binding ReloadModsButtonText}"
-                        Command="{Binding ReloadModsCommand}"
-                        Margin="0,0,8,8" />
-                <Button Content="检测更新" IsEnabled="False" ToolTip.Tip="将在后续切片接入旧版检测流程" Margin="0,0,8,8" />
-                <Button Content="检测汉化" IsEnabled="False" ToolTip.Tip="将在后续切片接入旧版检测流程" Margin="0,0,8,8" />
-                <Button Content="全选" IsEnabled="False" ToolTip.Tip="批量选择逻辑将在后续切片补齐" Margin="0,0,8,8" />
-                <Button Content="从本地安装 Mod" IsEnabled="False" ToolTip.Tip="本地安装流程将在后续切片补齐" Margin="0,0,8,8" />
-              </WrapPanel>
-            </Border>
-
-            <Border Classes="hintCard" Padding="10,8">
-              <StackPanel Spacing="4">
-                <TextBlock Text="{Binding ModsSummary}" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding ModManageHint}" Opacity="0.8" TextWrapping="Wrap" />
-              </StackPanel>
-            </Border>
-
-            <Border Classes="hintCard" IsVisible="{Binding HasSelectedMod}">
-              <StackPanel Spacing="3">
-                <TextBlock Text="{Binding SelectedModTitleText}" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding SelectedModDetails}" TextWrapping="Wrap" />
-              </StackPanel>
-            </Border>
-
-            <Border Classes="hintCard" IsVisible="{Binding ShowEmptyModsHint}">
-              <TextBlock Text="{Binding EmptyModsHintText}" TextWrapping="Wrap" />
-            </Border>
-
-            <Border Classes="hintCard" IsVisible="{Binding HasMods}" Padding="0">
-              <StackPanel>
-                <Border Padding="14,12" BorderBrush="#33FFFFFF" BorderThickness="0,0,0,1">
-                  <WrapPanel>
-                    <Border CornerRadius="999" BorderBrush="#66B89B7F" BorderThickness="1" Padding="10,4" Margin="0,0,8,6">
-                      <TextBlock FontSize="12" FontWeight="SemiBold">
-                        <Run Text="Mods" />
-                        <Run Text=" (" />
-                        <Run Text="{Binding Mods.Count}" />
-                        <Run Text=")" />
-                      </TextBlock>
-                    </Border>
-                    <Border CornerRadius="999" BorderBrush="#66B89B7F" BorderThickness="1" Padding="10,4" Margin="0,0,8,6">
-                      <TextBlock FontSize="12" FontWeight="SemiBold">
-                        <Run Text="启用 (" />
-                        <Run Text="{Binding EnabledModsCount}" />
-                        <Run Text=")" />
-                      </TextBlock>
-                    </Border>
-                    <Border CornerRadius="999" BorderBrush="#66B89B7F" BorderThickness="1" Padding="10,4" Margin="0,0,8,6">
-                      <TextBlock FontSize="12" FontWeight="SemiBold">
-                        <Run Text="禁用 (" />
-                        <Run Text="{Binding DisabledModsCount}" />
-                        <Run Text=")" />
-                      </TextBlock>
-                    </Border>
-                  </WrapPanel>
-                </Border>
-
-                <Border Padding="14,10" BorderBrush="#33FFFFFF" BorderThickness="0,0,0,1">
+              <Border Classes="hintCard" Padding="14,12" IsVisible="{Binding IsModsTab}">
+                <StackPanel Spacing="10">
                   <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="{Binding ModOperationsHintText}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
-                      <Button Content="{Binding EnableModButtonText}" Command="{Binding EnableSelectedModCommand}" IsEnabled="{Binding CanEnableSelectedMod}" />
-                      <Button Content="{Binding DisableModButtonText}" Command="{Binding DisableSelectedModCommand}" IsEnabled="{Binding CanDisableSelectedMod}" />
-                      <Button Content="{Binding UninstallModButtonText}" Command="{Binding UninstallSelectedModCommand}" IsEnabled="{Binding CanOperateSelectedMod}" />
-                      <Button Content="{Binding CheckUpdateModButtonText}" Command="{Binding CheckUpdateSelectedModCommand}" IsEnabled="{Binding CanOperateSelectedMod}" />
-                    </StackPanel>
+                    <TextBlock Grid.Column="0" Text="Tag 筛选与管理" Classes="sectionTitle" />
+                    <Button Grid.Column="1"
+                            Content="{Binding TagPanelToggleText}"
+                            Command="{Binding ToggleTagPanelExpandedCommand}" />
                   </Grid>
-                </Border>
 
-                <Border Padding="14,8" BorderBrush="#33FFFFFF" BorderThickness="0,0,0,1">
-                  <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Text="选择" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Text="{Binding ModColumnTitleText}" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" Margin="16,0,0,0" />
-                    <TextBlock Grid.Column="2" Text="{Binding StatusColumnTitleText}" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" />
-                  </Grid>
-                </Border>
+                  <StackPanel Spacing="10" IsVisible="{Binding IsTagPanelExpanded}">
 
-                <ListBox ItemsSource="{Binding FilteredMods}"
-                         SelectedItem="{Binding SelectedMod}"
-                         MaxHeight="450"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ModManageItem">
-                      <Border CornerRadius="8" Padding="12,10" Background="Transparent" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
-                        <Grid>
-                          <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                          </Grid.ColumnDefinitions>
+                    <Grid ColumnDefinitions="*,Auto">
+                      <ComboBox Grid.Column="0" ItemsSource="{Binding TagFilters}" SelectedItem="{Binding SelectedTagFilter}">
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ModTagFilterOption">
+                            <TextBlock Text="{Binding DisplayText}" />
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
 
-                          <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0" Width="24" Height="24">
-                            <Ellipse Width="16" Height="16" Stroke="#D2A679" Fill="Transparent" StrokeThickness="2" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !IsEnabled}" />
-                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding IsEnabled}">
-                              <Ellipse Width="16" Height="16" Stroke="#D2A679" Fill="Transparent" StrokeThickness="2" />
-                              <Ellipse Width="8" Height="8" Fill="#D2A679" />
+                      <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                        <CheckBox Content="文件夹式" IsChecked="{Binding ShowFolderTags}" Margin="0,0,8,0" />
+                        <CheckBox Content="前缀式" IsChecked="{Binding ShowPrefixTags}" Margin="0,0,8,0" />
+                        <CheckBox Content="自定义" IsChecked="{Binding ShowCustomTags}" />
+                      </WrapPanel>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox Grid.Column="0"
+                               Text="{Binding TagSearchKeyword}"
+                               Watermark="筛选 Tag / 输入新标签名后点新增"
+                               Height="34"
+                               VerticalContentAlignment="Center" />
+                      <Button Grid.Column="1" Content="新增" Command="{Binding AddCustomTagCommand}" MinWidth="70" Height="34" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding TagPanelItems}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ModTagPanelItem">
+                          <ToggleButton IsChecked="{Binding IsSelected}"
+                                        PointerPressed="OnTagChipPointerPressed"
+                                        Background="#12D2A679"
+                                        BorderBrush="#66B89B7F"
+                                        BorderThickness="1"
+                                        CornerRadius="999"
+                                        Padding="10,4"
+                                        Margin="0,0,8,8">
+                            <ToggleButton.ContextMenu>
+                              <ContextMenu>
+                                <MenuItem Header="重命名"
+                                          Tag="{Binding .}"
+                                          Click="OnCustomTagRenameClicked" />
+                                <MenuItem Header="删除该标签"
+                                          Tag="{Binding .}"
+                                          Click="OnCustomTagDeleteClicked" />
+                              </ContextMenu>
+                            </ToggleButton.ContextMenu>
+                            <TextBlock Text="{Binding DisplayText}" FontSize="12" />
+                          </ToggleButton>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <WrapPanel>
+                      <Button Content="搜索"
+                              Command="{Binding ApplySelectedTagsToSearchCommand}"
+                              IsEnabled="{Binding CanApplyTagSelectionToSearch}"
+                              Margin="0,0,8,8" />
+                      <Button Content="清除选中 Tags"
+                              Command="{Binding ClearSelectedTagsCommand}"
+                              Margin="0,0,0,8" />
+                    </WrapPanel>
+
+                    <TextBlock Text="选中 Tag 仅用于组合搜索或批量标签操作；点击“搜索”后才会写入搜索公式。"
+                               FontSize="12"
+                               Opacity="0.7"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding InlineTagHint}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="hintCard" Padding="14,12">
+                <StackPanel>
+                  <WrapPanel IsVisible="{Binding IsModsTab}">
+                    <Button Classes="toolbarAction" Content="打开文件夹" Command="{Binding OpenCurrentInstanceModsFolderCommand}" />
+                    <Button Classes="toolbarAction" Content="检测更新" Command="{Binding CheckAllModsUpdateCommand}" />
+                    <Button Classes="toolbarAction" Content="检测汉化" Command="{Binding CheckAllModsLocalizationCommand}" />
+                    <Button Classes="toolbarAction" Content="全选" Command="{Binding ToggleAllSelectionCommand}" />
+                    <Button Classes="toolbarAction" Content="刷新" Command="{Binding ReloadModsCommand}" />
+                    <Button Classes="toolbarAction" Width="34" Padding="0" Content="+" ToolTip.Tip="从本地安装 Mod" Command="{Binding InstallModFromLocalCommand}" />
+                  </WrapPanel>
+
+                  <WrapPanel IsVisible="{Binding IsBackupTab}">
+                    <Button Classes="toolbarAction" Content="打开文件夹" Command="{Binding OpenBackupFolderCommand}" />
+                    <Button Classes="toolbarAction" Content="全选" Command="{Binding ToggleAllSelectionCommand}" />
+                    <Button Classes="toolbarAction" Content="刷新" Command="{Binding ReloadModsCommand}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="hintCard" IsVisible="{Binding ShowEmptyModsHint}">
+                <TextBlock Text="{Binding CurrentEmptyHintText}" TextWrapping="Wrap" />
+              </Border>
+
+              <Border Classes="hintCard" IsVisible="{Binding HasMods}" Padding="0">
+                <StackPanel>
+                  <Border Padding="14,8" BorderBrush="#33FFFFFF" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" MinWidth="24">
+                        <CheckBox IsChecked="{Binding IsCurrentPageAllSelected}"
+                                  Command="{Binding ToggleCurrentPageSelectionCommand}"
+                                  IsEnabled="{Binding CanToggleCurrentPageSelection}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Text="目录 | 名称 | 版本 | 作者" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" Margin="16,0,0,0" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsModsTab}" />
+                      <TextBlock Grid.Column="1" Text="备份目录 | 名称 | 版本 | 作者" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" Margin="16,0,0,0" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsBackupTab}" />
+                      <TextBlock Grid.Column="2" Text="状态 | 更新时间" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" IsVisible="{Binding IsModsTab}" />
+                      <TextBlock Grid.Column="2" Text="备份时间" FontSize="13" FontWeight="SemiBold" Opacity="0.75" VerticalAlignment="Center" IsVisible="{Binding IsBackupTab}" />
+                    </Grid>
+                  </Border>
+
+                  <ListBox ItemsSource="{Binding FilteredMods}"
+                           Classes="modList"
+                           SelectedItem="{Binding SelectedMod}"
+                           SelectionMode="Single,Toggle"
+                           Margin="0"
+                           Background="Transparent"
+                           BorderThickness="0"
+                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ModManageItem">
+                        <Border Classes="modRow" CornerRadius="8" Padding="12,10" Background="Transparent" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+                          <Grid ColumnDefinitions="Auto,*,Auto">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,12,0" />
+
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                              <TextBlock TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                <Run Text="{Binding DirectoryName}" FontSize="14" FontWeight="SemiBold" />
+                                <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
+                                <Run Text="{Binding DisplayName}" FontSize="13" />
+                                <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
+                                <Run Text="{Binding Version}" FontSize="13" Foreground="#B0B0B0" />
+                                <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
+                                <Run Text="{Binding Author}" FontSize="13" Foreground="#B0B0B0" />
+                              </TextBlock>
+                              <TextBlock Margin="0,4,0,0" Opacity="0.6" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
+                                <Run Text="{Binding #Root.DataContext.ModDescriptionLabelText}" />
+                                <Run Text="{Binding Description}" />
+                              </TextBlock>
+                              <TextBlock Margin="0,4,0,0" Opacity="0.62" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" IsVisible="{Binding HasBackupSummary}">
+                                <Run Text="{Binding BackupSummaryText}" />
+                              </TextBlock>
+                              <StackPanel Margin="0,4,0,0" Orientation="Horizontal" IsVisible="{Binding HasDisplayDependencies}">
+                                <TextBlock Text="前置：" Opacity="0.64" FontSize="11" Margin="0,0,4,0" VerticalAlignment="Top" />
+                                <ItemsControl ItemsSource="{Binding DisplayDependencies}" MaxWidth="360">
+                                  <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                      <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                  </ItemsControl.ItemsPanel>
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                      <Button Command="{Binding #Root.DataContext.ClickDependencySearchCommand}"
+                                              CommandParameter="{Binding .}"
+                                              Margin="0,0,6,4"
+                                              Padding="0"
+                                              Background="Transparent"
+                                              BorderThickness="0"
+                                              Cursor="Hand"
+                                              ToolTip.Tip="{Binding UniqueId}">
+                                        <TextBlock FontSize="11">
+                                          <Run Text="{Binding StatusPrefix}" Foreground="{Binding StatusPrefixColor}" />
+                                          <Run Text="{Binding StatusSuffix}" Foreground="#3E8EDE" />
+                                          <Run Text="{Binding DisplayText}" Foreground="#3E8EDE" />
+                                        </TextBlock>
+                                      </Button>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                              <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding DisplayTags}" IsVisible="{Binding HasAnyTag}">
+                                <ItemsControl.ItemsPanel>
+                                  <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                  </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate>
+                                    <Button Command="{Binding #Root.DataContext.ClickTagSearchCommand}"
+                                            CommandParameter="{Binding .}"
+                                            Background="#12D2A679"
+                                            BorderBrush="#55B89B7F"
+                                            BorderThickness="1"
+                                            CornerRadius="999"
+                                            Padding="8,2"
+                                            Margin="0,0,6,4"
+                                            FontSize="11">
+                                      <TextBlock Text="{Binding .}" />
+                                    </Button>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </StackPanel>
+
+                            <Grid Grid.Column="2" MinWidth="260" VerticalAlignment="Center">
+                              <StackPanel Classes="rowMeta" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="{Binding PrimaryStateText}" FontSize="12" FontWeight="SemiBold" Opacity="0.75" HorizontalAlignment="Right" />
+                                <TextBlock Text="{Binding SecondaryStateText}" FontSize="12" Opacity="0.5" HorizontalAlignment="Right" />
+                              </StackPanel>
+
+                              <StackPanel Classes="rowHoverActions" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="6">
+                                <WrapPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                                  <Button Classes="rowAction" Command="{Binding DataContext.ShowLocalItemDetailCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="查看本地详情">
+                                    <TextBlock Text="📄" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" IsVisible="{Binding IsNormalItem}" Command="{Binding DataContext.ShowOnlineItemDetailCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="查看在线详情">
+                                    <TextBlock Text="🌐" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" Command="{Binding DataContext.OpenItemFolderCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="打开目录">
+                                    <TextBlock Text="📁" FontSize="13" />
+                                  </Button>
+                                </WrapPanel>
+                                <WrapPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                                  <Button Classes="rowAction" IsVisible="{Binding IsNormalItem}" Command="{Binding DataContext.CheckItemUpdateCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="检查更新">
+                                    <TextBlock Text="🔄" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" IsVisible="{Binding IsNormalItem}" Command="{Binding DataContext.ToggleItemEnabledCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="启用/禁用">
+                                    <TextBlock Text="⏻" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" IsVisible="{Binding IsNormalItem}" Command="{Binding DataContext.BackupItemCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="备份">
+                                    <TextBlock Text="💾" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" IsVisible="{Binding IsBackupItem}" Command="{Binding DataContext.RestoreItemCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="恢复备份">
+                                    <TextBlock Text="🔁" FontSize="13" />
+                                  </Button>
+                                  <Button Classes="rowAction" Command="{Binding DataContext.DeleteItemCommand, ElementName=Root}" CommandParameter="{Binding .}" ToolTip.Tip="删除">
+                                    <TextBlock Text="🗑" FontSize="13" />
+                                  </Button>
+                                </WrapPanel>
+                              </StackPanel>
                             </Grid>
-                          </StackPanel>
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
 
-                          <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
-                            <TextBlock TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
-                              <Run Text="{Binding DirectoryName}" FontSize="14" FontWeight="SemiBold" />
-                              <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
-                              <Run Text="{Binding DisplayName}" FontSize="13" />
-                              <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
-                              <Run Text="{Binding Version}" FontSize="13" Foreground="#B0B0B0" />
-                              <Run Text=" | " FontSize="13" Foreground="#B0B0B0" />
-                              <Run Text="{Binding Author}" FontSize="13" Foreground="#B0B0B0" />
-                            </TextBlock>
-                            <TextBlock Margin="0,4,0,0" Opacity="0.6" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap">
-                              <Run Text="{Binding #Root.DataContext.ModDescriptionLabelText}" />
-                              <Run Text="{Binding Description}" />
-                            </TextBlock>
-                            <TextBlock Margin="0,4,0,0" Opacity="0.72" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasAnyTag}">
-                              <Run Text="Tag: " />
-                              <Run Text="{Binding TagsDisplay}" />
-                            </TextBlock>
-                          </StackPanel>
+                  <Border Padding="14,10" BorderBrush="#33FFFFFF" BorderThickness="0,1,0,0">
+                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding TotalFilteredCount, StringFormat=共 {0} 项}" VerticalAlignment="Center" Opacity="0.75" />
 
-                          <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="{Binding EnableStateText}" FontSize="12" FontWeight="SemiBold" Opacity="0.75" HorizontalAlignment="Right" />
-                            <TextBlock Text="{Binding UpdateStatus}" FontSize="12" Opacity="0.5" HorizontalAlignment="Right" />
-                          </StackPanel>
-                        </Grid>
-                      </Border>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-              </StackPanel>
-            </Border>
+                      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                        <Button Content="上一页"
+                          Command="{Binding PreviousPageCommand}"
+                          IsEnabled="{Binding HasPreviousPage}"
+                          MinWidth="70"
+                          Padding="12,0"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center" />
+
+                        <ItemsControl ItemsSource="{Binding PageNumbers}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                    <Button Classes="paginationButton"
+                                      Content="{Binding .}"
+                                      Command="{Binding DataContext.GoToPageCommand, ElementName=Root}"
+                                      CommandParameter="{Binding .}"
+                                      Margin="2,0" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Content="下一页"
+                          Command="{Binding NextPageCommand}"
+                          IsEnabled="{Binding HasNextPage}"
+                          MinWidth="70"
+                          Padding="12,0"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
             </StackPanel>
           </StackPanel>
 
@@ -656,19 +912,159 @@
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding ExportSectionTitleText}" Classes="sectionTitle" />
 
-              <TextBlock Text="导出文件名前缀" FontWeight="SemiBold" />
-              <TextBox Text="{Binding ExportNamePrefix}" />
+              <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="整合包名称" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ModpackName}" Margin="0,0,0,8" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="版本" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ModpackVersion}" Margin="0,0,0,8" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="作者" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ModpackAuthor}" />
+              </Grid>
 
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="{Binding ExportCurrentModsButtonText}" Command="{Binding ExportCurrentModsCommand}" />
-                <Button Content="{Binding OpenExportFolderButtonText}" Command="{Binding OpenExportFolderCommand}" />
+              <TextBlock Text="导出内容" FontWeight="SemiBold" />
+              <StackPanel Spacing="6">
+                <CheckBox Content="导出 Mod 清单"
+                          IsChecked="{Binding IncludeMods}" />
+                <CheckBox Content="导出 Mod 配置文件（config/*.json、根目录自定义 JSON）"
+                          IsChecked="{Binding IncludeModSettings}" />
+                <CheckBox Content="导出当前 SVL 启动器文件"
+                          IsChecked="{Binding IncludeSvlLauncher}" />
               </StackPanel>
 
-              <TextBlock Text="{Binding ExportHint}" Opacity="0.75" TextWrapping="Wrap" />
+              <Border BorderBrush="#44B89B7F"
+                      BorderThickness="1"
+                      CornerRadius="8"
+                      Padding="8"
+                      IsVisible="{Binding ShowExportModList}">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+                    <Button Grid.Column="0"
+                            Content="全选/反选"
+                            Command="{Binding ToggleSelectAllExportModsCommand}"
+                            Padding="8,4"
+                            Margin="0,0,8,0" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ExportProgressText}"
+                               VerticalAlignment="Center"
+                               Opacity="0.82" />
+                    <TextBlock Grid.Column="2"
+                               Text="来源优先导出清单，无来源条目仅保留安装提示"
+                               FontSize="11"
+                               Opacity="0.68"
+                               VerticalAlignment="Center" />
+                  </Grid>
+
+                  <Border BorderBrush="#33B89B7F" BorderThickness="1" CornerRadius="6" Padding="4">
+                    <ItemsControl ItemsSource="{Binding ExportModItems}" MaxHeight="260">
+                      <ItemsControl.Template>
+                        <ControlTemplate TargetType="ItemsControl">
+                          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsPresenter />
+                          </ScrollViewer>
+                        </ControlTemplate>
+                      </ItemsControl.Template>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid ColumnDefinitions="30,*,110" Margin="2,2,2,4">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                              <TextBlock FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis">
+                                <Run Text="{Binding Version}" />
+                                <Run Text=" · " />
+                                <Run Text="{Binding Author}" />
+                              </TextBlock>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding SourceDescription}"
+                                       FontSize="11"
+                                       Opacity="0.78"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="导出策略：为遵循来源平台分发规则，导出包不直接包含 Mod 本体，仅导出清单及可选配置。"
+                         Opacity="0.75"
+                         TextWrapping="Wrap" />
+
+              <ProgressBar Minimum="0"
+                           Maximum="100"
+                           Value="{Binding ExportProgress}"
+                           Height="6"
+                           IsVisible="{Binding IsExporting}" />
+
+              <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding ExportStatusMessage}" Opacity="0.75" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Grid.Column="1" Content="保存配置" Command="{Binding SaveExportConfigCommand}" Margin="8,0,0,0" />
+                <Button Grid.Column="2" Content="读取配置" Command="{Binding LoadExportConfigCommand}" Margin="8,0,0,0" />
+                <Button Grid.Column="3"
+                        Content="{Binding ExportCurrentModsButtonText}"
+                        Command="{Binding ExportCurrentModsCommand}"
+                        Margin="8,0,0,0"
+                        IsEnabled="{Binding CanStartExport}" />
+              </Grid>
+
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="{Binding OpenExportFolderButtonText}" Command="{Binding OpenExportFolderCommand}" />
+                <TextBlock Text="{Binding ExportHint}" Opacity="0.75" VerticalAlignment="Center" TextWrapping="Wrap" />
+              </StackPanel>
             </StackPanel>
           </Border>
         </StackPanel>
       </ScrollViewer>
+
+      <Border Grid.Row="1"
+              IsVisible="{Binding ShowSelectionActionsBar}"
+              Margin="0,10,0,0"
+              Background="#EAF9F1"
+              BorderBrush="#99B9895F"
+              BorderThickness="1"
+              CornerRadius="10"
+              Padding="12,10"
+              Opacity="0.98">
+        <StackPanel Spacing="8">
+          <StackPanel IsVisible="{Binding IsModsTab}" Spacing="8">
+            <TextBlock Text="{Binding SelectedCount, StringFormat=已选择 {0} 个 Mod}"
+                       FontWeight="SemiBold"
+                       FontSize="13" />
+            <TextBlock Text="批量操作会立即生效，建议先备份后执行启用/禁用/删除。"
+                       Opacity="0.74"
+                       FontSize="12" />
+            <WrapPanel>
+              <Button Content="备份已选" Command="{Binding BackupSelectedModsCommand}" Margin="0,0,8,8" />
+              <Button Content="启用已选" Command="{Binding EnableSelectedModsCommand}" Margin="0,0,8,8" />
+              <Button Content="禁用已选" Command="{Binding DisableSelectedModsCommand}" Margin="0,0,8,8" />
+              <Button Content="删除已选" Command="{Binding DeleteSelectedModsCommand}" Margin="0,0,8,8" />
+                    <Button Content="添加到新标签" Command="{Binding AddSelectedModsToNewTagCommand}" Margin="0,0,8,8" />
+              <Button Content="{Binding TagBatchActionText}"
+                      Command="{Binding ApplyTagBatchActionCommand}"
+                      IsVisible="{Binding ShowTagBatchAction}"
+                      Margin="0,0,8,8" />
+              <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,8" />
+            </WrapPanel>
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding IsBackupTab}" Spacing="8">
+            <TextBlock Text="{Binding SelectedCount, StringFormat=已选择 {0} 个备份}"
+                       FontWeight="SemiBold"
+                       FontSize="13" />
+            <TextBlock Text="支持批量恢复或删除备份。"
+                       Opacity="0.74"
+                       FontSize="12" />
+            <WrapPanel>
+              <Button Content="恢复已选备份" Command="{Binding RestoreSelectedBackupsCommand}" Margin="0,0,8,8" />
+              <Button Content="删除已选备份" Command="{Binding DeleteSelectedBackupsCommand}" Margin="0,0,8,8" />
+              <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,8" />
+            </WrapPanel>
+          </StackPanel>
+        </StackPanel>
+      </Border>
     </Grid>
   </Grid>
 </UserControl>

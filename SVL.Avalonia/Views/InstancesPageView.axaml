@@ -17,7 +17,7 @@
         <Grid ColumnDefinitions="*,Auto,Auto,Auto">
           <Button Grid.Column="0"
                   Classes="instanceCardBody"
-                  Command="{Binding #Root.DataContext.SelectInstanceCommand}"
+              Command="{Binding DataContext.SelectInstanceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                   CommandParameter="{Binding}">
             <Border Padding="16">
               <Grid ColumnDefinitions="Auto,*">
@@ -73,7 +73,7 @@
                   ToolTip.Tip="版本设置"
                   Content="⚙"
                   Margin="8,0,0,0"
-                  Command="{Binding #Root.DataContext.OpenVersionSettingsCommand}"
+              Command="{Binding DataContext.OpenVersionSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                   CommandParameter="{Binding}" />
 
           <Button Grid.Column="2"
@@ -81,7 +81,7 @@
                   ToolTip.Tip="收藏"
                   Content="{Binding FavoriteGlyph}"
                   Margin="4,0,0,0"
-                  Command="{Binding #Root.DataContext.ToggleFavoriteCommand}"
+              Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                   CommandParameter="{Binding}" />
 
           <TextBlock Grid.Column="3"

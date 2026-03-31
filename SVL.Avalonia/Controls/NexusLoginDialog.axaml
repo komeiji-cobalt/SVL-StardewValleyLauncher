@@ -2,43 +2,92 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:SVL.Avalonia.ViewModels"
         x:Class="SVL.Avalonia.Controls.NexusLoginDialog"
-        Width="540"
-          Height="520"
+        Width="500"
+        Height="640"
         WindowStartupLocation="CenterOwner"
         x:DataType="vm:NexusLoginDialogViewModel"
         Title="Nexus 登录">
-  <Border Padding="16">
-      <ScrollViewer>
-        <StackPanel Spacing="10">
-      <TextBlock Text="NexusMods 登录" FontSize="20" FontWeight="SemiBold" />
-      <TextBlock Text="当前阶段先接入 API Key 鉴权闭环（可演示）；后续再升级为完整 OAuth。" TextWrapping="Wrap" />
-      <TextBlock Text="API Key" />
-      <TextBox Watermark="请输入 Nexus API Key"
-               Text="{Binding ApiKey}" />
-      <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
+  <Border Background="#FFF8F2DE" BorderBrush="#66B89B7F" BorderThickness="1" CornerRadius="12">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <Border Grid.Row="0" Background="#FFD47748" CornerRadius="12,12,0,0" Padding="22,16">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Text="🔓" FontSize="18" />
+            <TextBlock Text="Nexus Mods 登录" FontSize="18" FontWeight="SemiBold" Foreground="White" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="✕" Width="30" Height="30" Padding="0" Command="{Binding CloseCommand}" Background="#22FFFFFF" BorderThickness="0" Foreground="White" />
+        </Grid>
+      </Border>
 
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Content="获取 API Key" Command="{Binding OpenApiKeyPageCommand}" />
-        <Button Content="验证并登录" Command="{Binding ValidateAndLoginCommand}" />
-      </StackPanel>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="24,20">
+        <StackPanel Spacing="14">
+          <StackPanel Spacing="4" HorizontalAlignment="Center">
+            <TextBlock Text="NEXUS MODS" FontSize="30" FontWeight="Bold" HorizontalAlignment="Center" />
+            <TextBlock Text="安全登录 SVL 以访问 Nexus Mods 资源" Opacity="0.72" HorizontalAlignment="Center" />
+          </StackPanel>
 
-      <Separator Margin="0,6,0,6" />
-      <TextBlock Text="OAuth 登录（演示闭环）" FontSize="16" FontWeight="SemiBold" />
-      <TextBlock Text="推荐：点击“自动监听并登录”后在浏览器授权，SVL 会自动接收回调并完成登录。" TextWrapping="Wrap" />
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Content="自动监听并登录" Command="{Binding StartOAuthAutoLoginCommand}" />
-        <Button Content="重开授权页" Command="{Binding RetryOpenAuthorizePageCommand}" />
-        <Button Content="复制授权地址" Command="{Binding CopyAuthorizeUrlCommand}" IsEnabled="{Binding CanCopyAuthorizeUrl}" />
-        <Button Content="开始 OAuth 授权" Command="{Binding StartOAuthAuthorizeCommand}" />
-        <Button Content="完成 OAuth 登录" Command="{Binding CompleteOAuthLoginCommand}" />
-      </StackPanel>
-      <TextBox Text="{Binding OauthCallbackInput}" Watermark="粘贴回调 URL 或 code" />
-      <TextBlock Text="{Binding OauthStatusMessage}" TextWrapping="Wrap" />
+          <Border BorderBrush="#44B89B7F" BorderThickness="1" CornerRadius="8" Padding="14" Background="#0BFFFFFF">
+            <StackPanel Spacing="6">
+              <StackPanel IsVisible="{Binding IsLoggedIn}">
+                <TextBlock Text="✓ 已登录" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding UserName}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding MembershipType}" Opacity="0.7" HorizontalAlignment="Center" />
+              </StackPanel>
+              <StackPanel IsVisible="{Binding IsNotLoggedIn}">
+                <TextBlock Text="🔒 未登录" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="请点击下方按钮登录您的 Nexus Mods 账户" Opacity="0.7" HorizontalAlignment="Center" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
 
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-        <Button Content="关闭" Command="{Binding CancelCommand}" />
-      </StackPanel>
-    </StackPanel>
-        </ScrollViewer>
+          <Button Content="{Binding LoginButtonText}"
+                  Command="{Binding LoginCommand}"
+                  Height="40"
+              Width="280"
+              HorizontalAlignment="Center"
+                  Background="#FFD47748"
+                  Foreground="White"
+                  BorderThickness="0"
+                  IsVisible="{Binding IsNotLoggedIn}" />
+
+            <Button Content="重新打开浏览器窗口"
+                  Command="{Binding ReopenBrowserPageCommand}"
+              Width="220"
+              HorizontalAlignment="Center"
+                  Height="36"
+                  IsVisible="{Binding ShowReopenBrowserButton}" />
+
+            <TextBlock Text="{Binding RollbackAuthorizeUrlPreview}"
+                 HorizontalAlignment="Center"
+                 TextWrapping="Wrap"
+                 MaxWidth="420"
+                 Opacity="0.62"
+                 IsVisible="{Binding ShowReopenBrowserButton}" />
+
+          <Button Content="🚪 登出"
+                  Command="{Binding LogoutCommand}"
+                  Height="40"
+                  IsVisible="{Binding IsLoggedIn}" />
+
+          <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" HorizontalAlignment="Center" Opacity="0.78" />
+          <TextBlock Text="{Binding OauthStatusMessage}" TextWrapping="Wrap" HorizontalAlignment="Center" Opacity="0.72" />
+
+          <Border BorderBrush="#33B89B7F" BorderThickness="1" CornerRadius="8" Padding="12">
+            <StackPanel Spacing="6">
+              <TextBlock Text="登录后您可以：" FontWeight="SemiBold" />
+              <TextBlock Text="• 下载 Nexus Mods 上的 MOD" Opacity="0.8" />
+              <TextBlock Text="• 查看 MOD 详情和更新" Opacity="0.8" />
+              <TextBlock Text="• 同步您的 Nexus Mods 账户" Opacity="0.8" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <Border Grid.Row="2" Background="#0F000000" BorderBrush="#33B89B7F" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12" Padding="20,12">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="关闭" Command="{Binding CloseCommand}" MinWidth="92" Height="34" />
+        </StackPanel>
+      </Border>
+    </Grid>
   </Border>
 </Window>

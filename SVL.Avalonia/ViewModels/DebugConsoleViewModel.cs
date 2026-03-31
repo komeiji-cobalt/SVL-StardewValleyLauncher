@@ -70,10 +70,10 @@ public partial class DebugConsoleViewModel : ObservableObject
 
     private void HandleLineAdded(string line)
     {
-        Logs.Insert(0, line);
+        Logs.Add(line);
         while (Logs.Count > 800)
         {
-            Logs.RemoveAt(Logs.Count - 1);
+            Logs.RemoveAt(0);
         }
 
         RebuildLogsText();

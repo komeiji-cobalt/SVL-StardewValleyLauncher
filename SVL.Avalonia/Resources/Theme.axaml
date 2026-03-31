@@ -62,7 +62,19 @@
     <Setter Property="Background" Value="#00FFFFFF" />
     <Setter Property="BorderBrush" Value="#66D4C4A8" />
     <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="12,6" />
     <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+
+  <Style Selector="Button.settingsNav:pointerover">
+    <Setter Property="Background" Value="#1FD4C4A8" />
+    <Setter Property="BorderBrush" Value="#B3D4C4A8" />
+  </Style>
+
+  <Style Selector="Button.settingsNav:pressed">
+    <Setter Property="Background" Value="#33D4C4A8" />
   </Style>
 
   <Style Selector="Button.settingsNav.selected">
@@ -220,12 +232,21 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="#00FFFFFF" />
-    <Setter Property="Padding" Value="10,8" />
-    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="MinHeight" Value="52" />
   </Style>
 
   <Style Selector="Button.downloadCategory:pointerover">
     <Setter Property="Background" Value="#33D4C4A8" />
+    <Setter Property="BorderBrush" Value="#66D4C4A8" />
+  </Style>
+
+  <Style Selector="Button.downloadCategory:pressed">
+    <Setter Property="Background" Value="#55D4C4A8" />
+    <Setter Property="BorderBrush" Value="#88D4C4A8" />
   </Style>
 
   <Style Selector="Button.launchPrimary">

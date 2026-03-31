@@ -299,6 +299,7 @@ public partial class MainWindowViewModel : ObservableObject
         TaskStatusPage.SetCurrentTask(task.Name, task.Status);
         TaskStatusPage.SetConflictPreview(task.ConflictPreviewItems);
         TaskStatusPage.SetCanRetryFailedItems(task.CanRetry);
+        UpdateTaskStatusOverview();
         RefreshTaskNavNotification();
     }
 
@@ -308,6 +309,7 @@ public partial class MainWindowViewModel : ObservableObject
         TaskStatusPage.SetCurrentTask(task.Name, task.Status);
         TaskStatusPage.SetConflictPreview(task.ConflictPreviewItems);
         TaskStatusPage.SetCanRetryFailedItems(task.CanRetry);
+        UpdateTaskStatusOverview();
         RefreshTaskNavNotification();
     }
 
@@ -333,11 +335,14 @@ public partial class MainWindowViewModel : ObservableObject
             TaskStatusPage.AddRetryReport(reportPath);
         }
 
+        UpdateTaskStatusOverview();
+
         RefreshTaskNavNotification();
     }
 
     private void HandleNavigateToTaskStatus()
     {
+        UpdateTaskStatusOverview();
         NavigateToPage("任务", TaskStatusPage);
     }
 
@@ -434,6 +439,15 @@ public partial class MainWindowViewModel : ObservableObject
 
         ShowTaskNavNotification = !IsTasksPage && hasFailedTasks;
         ShowTaskNavSoftHint = !IsTasksPage && !hasFailedTasks && hasRunningTasks;
+        UpdateTaskStatusOverview();
+    }
+
+    private void UpdateTaskStatusOverview()
+    {
+        TaskStatusPage.UpdateTaskOverview(
+            DownloadPage.ActiveTasks.Count,
+            DownloadPage.FinishedTasks.Count,
+            DownloadPage.SelectedTaskHint);
     }
 
     private void HandleSettingsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

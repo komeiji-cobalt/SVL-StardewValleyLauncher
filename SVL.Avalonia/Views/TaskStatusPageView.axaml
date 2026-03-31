@@ -3,56 +3,71 @@
              xmlns:vm="using:SVL.Avalonia.ViewModels"
              x:Class="SVL.Avalonia.Views.TaskStatusPageView"
              x:DataType="vm:TaskStatusPageViewModel">
-  <Border Classes="panel">
-    <StackPanel Spacing="8">
-      <TextBlock Text="{Binding Title}" Classes="heroTitle" />
-      <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
-      <Separator />
-      <TextBlock Text="{Binding CurrentTaskName, StringFormat=当前任务: {0}}" />
-      <TextBlock Text="{Binding CurrentTaskStatus, StringFormat=任务状态: {0}}" />
-            <Button Content="一键重试失败项"
-              Command="{Binding RetryFailedItemsCommand}"
-              IsEnabled="{Binding CanRetryFailedItems}"
-              HorizontalAlignment="Left" />
-      <TextBlock Text="安装冲突预览" FontWeight="SemiBold" />
-      <Border Classes="hintCard">
-        <ScrollViewer Height="140">
-          <ItemsControl ItemsSource="{Binding ConflictPreviewItems}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </Border>
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <TextBlock Text="执行日志" FontWeight="SemiBold" VerticalAlignment="Center" />
-        <Button Content="清空日志" Command="{Binding ClearLogsCommand}" />
+  <Grid ColumnDefinitions="*,300">
+    <Border Grid.Column="0" Classes="panel">
+      <StackPanel Spacing="8">
+        <TextBlock Text="{Binding Title}" Classes="heroTitle" />
+        <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
+        <Separator />
+        <TextBlock Text="{Binding CurrentTaskName, StringFormat=当前任务: {0}}" />
+        <TextBlock Text="{Binding CurrentTaskStatus, StringFormat=任务状态: {0}}" />
+        <Button Content="一键重试失败项"
+                Command="{Binding RetryFailedItemsCommand}"
+                IsEnabled="{Binding CanRetryFailedItems}"
+                HorizontalAlignment="Left" />
+        <TextBlock Text="安装冲突预览" FontWeight="SemiBold" />
+        <Border Classes="hintCard">
+          <ScrollViewer Height="140">
+            <ItemsControl ItemsSource="{Binding ConflictPreviewItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="执行日志" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <Button Content="清空日志" Command="{Binding ClearLogsCommand}" />
+        </StackPanel>
+        <Border Classes="hintCard">
+          <ScrollViewer Height="220">
+            <ItemsControl ItemsSource="{Binding TaskLogs}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
+        <TextBlock Text="重试报告历史" FontWeight="SemiBold" />
+        <Border Classes="hintCard">
+          <ScrollViewer Height="120">
+            <ItemsControl ItemsSource="{Binding RetryReportHistory}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
       </StackPanel>
-      <Border Classes="hintCard">
-        <ScrollViewer Height="220">
-          <ItemsControl ItemsSource="{Binding TaskLogs}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </Border>
-      <TextBlock Text="重试报告历史" FontWeight="SemiBold" />
-      <Border Classes="hintCard">
-        <ScrollViewer Height="120">
-          <ItemsControl ItemsSource="{Binding RetryReportHistory}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </Border>
-    </StackPanel>
-  </Border>
+    </Border>
+
+    <Border Grid.Column="1" Classes="panel" Margin="12,0,0,0">
+      <StackPanel Spacing="12">
+        <Border Classes="hintCard">
+          <StackPanel Spacing="4">
+            <TextBlock Text="任务总览" Classes="hintTitle" />
+            <TextBlock Text="{Binding ActiveTasksCount, StringFormat=进行中: {0}}" />
+            <TextBlock Text="{Binding FinishedTasksCount, StringFormat=历史: {0}}" />
+            <TextBlock Text="{Binding SelectedTaskHint}" Opacity="0.75" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+  </Grid>
 </UserControl>
