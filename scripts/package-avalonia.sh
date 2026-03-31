@@ -18,8 +18,8 @@ HOST_OS="$(uname -s)"
 
 if [[ -z "$CLI_CONFIG" && -z "$RAW_BUILD_CONFIGURATION" && -z "$RAW_PUBLISH_CONFIG_ENV" ]]; then
   echo "[config] 未指定构建配置，默认执行双配置构建: Debug + Release"
-  "$SCRIPT_PATH" Debug
-  "$SCRIPT_PATH" Release
+  bash "$SCRIPT_PATH" Debug
+  bash "$SCRIPT_PATH" Release
   exit 0
 fi
 
@@ -27,8 +27,8 @@ if [[ -n "$CLI_CONFIG" ]]; then
   case "$CLI_CONFIG" in
     All|all|Both|both)
       echo "[config] 已启用双配置构建: Debug + Release"
-      "$SCRIPT_PATH" Debug
-      "$SCRIPT_PATH" Release
+      bash "$SCRIPT_PATH" Debug
+      bash "$SCRIPT_PATH" Release
       exit 0
       ;;
     Debug|debug)
