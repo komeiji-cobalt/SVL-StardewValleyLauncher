@@ -48,6 +48,42 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
     public bool CanRetryFailedItems { get; private set; }
 
     [ObservableProperty]
+    private bool _isEmptyState;
+
+    [ObservableProperty]
+    private string _adviceTitle = "建议操作";
+
+    public ObservableCollection<string> SuggestedActions { get; } = [];
+
+    [ObservableProperty]
+    private bool _isFailedState;
+
+    [ObservableProperty]
+    private bool _isCompletedState;
+
+    [ObservableProperty]
+    private bool _isCancelledState;
+
+    [ObservableProperty]
+    private double _progressPercent;
+
+    [ObservableProperty]
+    private string _failureSummary = "暂无失败信息";
+
+    [ObservableProperty]
+    private string _latestRetryReportPath = string.Empty;
+
+    public bool IsRunningState => !IsFailedState && !IsCompletedState && !IsCancelledState;
+
+    public bool ShowMainStateContent => !IsEmptyState;
+
+    public bool HasConflictPreview => ConflictPreviewItems.Count > 0;
+
+    public bool HasRetryReportHistory => RetryReportHistory.Count > 0;
+
+    public bool HasLatestRetryReport => !string.IsNullOrWhiteSpace(LatestRetryReportPath);
+
+    [ObservableProperty]
     private int _activeTasksCount;
 
     [ObservableProperty]
@@ -58,16 +94,20 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
 
     public event Action? RetryFailedItemsRequested;
 
+    public event Action? NavigateToDownloadRequested;
+
     public void SetCurrentTask(string name, string status)
     {
         CurrentTaskName = string.IsNullOrWhiteSpace(name) ? "暂无任务" : name;
         CurrentTaskStatus = string.IsNullOrWhiteSpace(status) ? "-" : status;
+        IsEmptyState = false;
         OnPropertyChanged(nameof(CurrentTaskName));
         OnPropertyChanged(nameof(CurrentTaskStatus));
 
         var canRetry = status.Contains("可重试", StringComparison.Ordinal) ||
                        status.Contains("失败", StringComparison.Ordinal);
         SetCanRetryFailedItems(canRetry);
+        RefreshStatusPresentation();
     }
 
     public void SetCanRetryFailedItems(bool canRetry)
@@ -79,6 +119,7 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
 
         CanRetryFailedItems = canRetry;
         OnPropertyChanged(nameof(CanRetryFailedItems));
+        RefreshSuggestedActions();
     }
 
     public void AddLog(string message)
@@ -108,10 +149,15 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
         }
 
         RetryReportHistory.Insert(0, reportPath);
+        LatestRetryReportPath = reportPath;
         while (RetryReportHistory.Count > 30)
         {
             RetryReportHistory.RemoveAt(RetryReportHistory.Count - 1);
         }
+
+        OnPropertyChanged(nameof(HasRetryReportHistory));
+        OnPropertyChanged(nameof(HasLatestRetryReport));
+        RefreshSuggestedActions();
     }
 
     public void SetConflictPreview(IEnumerable<string> previewItems)
@@ -121,6 +167,8 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
         {
             ConflictPreviewItems.Add(item);
         }
+
+        OnPropertyChanged(nameof(HasConflictPreview));
     }
 
     public void UpdateTaskOverview(int activeCount, int finishedCount, string selectedHint)
@@ -128,6 +176,125 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
         ActiveTasksCount = Math.Max(0, activeCount);
         FinishedTasksCount = Math.Max(0, finishedCount);
         SelectedTaskHint = string.IsNullOrWhiteSpace(selectedHint) ? "未选择任务" : selectedHint;
+
+        if (ActiveTasksCount + FinishedTasksCount <= 0)
+        {
+            SetEmptyState();
+            return;
+        }
+
+        if (IsEmptyState)
+        {
+            IsEmptyState = false;
+            if (string.Equals(CurrentTaskName, "当前没有进行中的任务", StringComparison.Ordinal))
+            {
+                CurrentTaskName = "任务已就绪";
+                CurrentTaskStatus = "请选择左侧任务查看详情";
+                OnPropertyChanged(nameof(CurrentTaskName));
+                OnPropertyChanged(nameof(CurrentTaskStatus));
+            }
+
+            RefreshStatusPresentation();
+        }
+    }
+
+    public void SetEmptyState()
+    {
+        CurrentTaskName = "当前没有进行中的任务";
+        CurrentTaskStatus = "暂无可展示的任务状态";
+        FailureSummary = "暂无失败信息";
+        ProgressPercent = 0;
+        IsFailedState = false;
+        IsCompletedState = false;
+        IsCancelledState = false;
+        IsEmptyState = true;
+        CanRetryFailedItems = false;
+
+        SuggestedActions.Clear();
+        AdviceTitle = "建议操作";
+        SuggestedActions.Add("前往下载页发起新任务");
+        SuggestedActions.Add("下载过程中可通过顶部“任务”或右下角按钮查看进度");
+
+        ConflictPreviewItems.Clear();
+        OnPropertyChanged(nameof(CurrentTaskName));
+        OnPropertyChanged(nameof(CurrentTaskStatus));
+        OnPropertyChanged(nameof(CanRetryFailedItems));
+        OnPropertyChanged(nameof(HasConflictPreview));
+        OnPropertyChanged(nameof(IsRunningState));
+        OnPropertyChanged(nameof(ShowMainStateContent));
+    }
+
+    private void RefreshStatusPresentation()
+    {
+        var status = CurrentTaskStatus ?? string.Empty;
+        IsFailedState = status.Contains("失败", StringComparison.Ordinal);
+        IsCompletedState = status.Contains("完成", StringComparison.Ordinal);
+        IsCancelledState = status.Contains("取消", StringComparison.Ordinal);
+
+        if (IsFailedState)
+        {
+            FailureSummary = status;
+        }
+        else
+        {
+            FailureSummary = "暂无失败信息";
+        }
+
+        var match = Regex.Match(status, "(\\d{1,3}(?:\\.\\d+)?)\\s*%", RegexOptions.CultureInvariant);
+        if (match.Success && double.TryParse(match.Groups[1].Value, out var percent))
+        {
+            ProgressPercent = Math.Clamp(percent, 0, 100);
+        }
+        else if (IsCompletedState)
+        {
+            ProgressPercent = 100;
+        }
+        else
+        {
+            ProgressPercent = 0;
+        }
+
+        OnPropertyChanged(nameof(IsRunningState));
+        RefreshSuggestedActions();
+    }
+
+    private void RefreshSuggestedActions()
+    {
+        SuggestedActions.Clear();
+
+        if (IsFailedState)
+        {
+            AdviceTitle = "失败后的建议";
+            SuggestedActions.Add("先点击“一键重试失败项”，仅重试失败资源。 ");
+            SuggestedActions.Add("若仍失败，检查代理地址与网络连通性。 ");
+            if (HasLatestRetryReport)
+            {
+                SuggestedActions.Add("打开最新重试报告，对比本次与上次失败差异。 ");
+            }
+            return;
+        }
+
+        if (IsCompletedState)
+        {
+            AdviceTitle = "任务已完成";
+            SuggestedActions.Add("可在下载页历史任务中查看安装目录与报告。 ");
+            if (HasConflictPreview)
+            {
+                SuggestedActions.Add("本次有冲突预览记录，可复核安装策略是否符合预期。 ");
+            }
+            return;
+        }
+
+        if (IsCancelledState)
+        {
+            AdviceTitle = "任务已取消";
+            SuggestedActions.Add("如需继续，可返回下载页重新入队。 ");
+            return;
+        }
+
+        AdviceTitle = "进行中的建议";
+        SuggestedActions.Add("保持窗口开启，SVL 会持续更新下载与安装状态。 ");
+        SuggestedActions.Add("如果长时间无进展，可检查代理设置、磁盘空间和权限。 ");
     }
 
     [RelayCommand]
@@ -135,6 +302,52 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
     {
         TaskLogs.Clear();
         AddLog("已清空任务日志");
+    }
+
+    [RelayCommand]
+    private void OpenLatestRetryReport()
+    {
+        if (!HasLatestRetryReport)
+        {
+            AddLog("暂无可打开的重试报告");
+            return;
+        }
+
+        OpenPath(LatestRetryReportPath);
+    }
+
+    [RelayCommand]
+    private void OpenRetryReport(string? reportPath)
+    {
+        if (string.IsNullOrWhiteSpace(reportPath))
+        {
+            AddLog("报告路径无效");
+            return;
+        }
+
+        OpenPath(reportPath);
+    }
+
+    private void OpenPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+            AddLog($"已打开: {path}");
+        }
+        catch (Exception ex)
+        {
+            AddLog($"打开失败: {ex.Message}");
+        }
     }
 
     [RelayCommand]
@@ -148,6 +361,17 @@ public sealed partial class TaskStatusPageViewModel : FeaturePageViewModelBase
 
         RetryFailedItemsRequested?.Invoke();
         AddLog("已发起失败项重试请求");
+    }
+
+    [RelayCommand]
+    private void GoToDownload()
+    {
+        NavigateToDownloadRequested?.Invoke();
+    }
+
+    partial void OnIsEmptyStateChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowMainStateContent));
     }
 }
 
@@ -295,6 +519,8 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 {
     private readonly Services.RemoteCatalogService _catalogService;
     private string _lastDisplayText = string.Empty;
+    private string _currentSourceToken = string.Empty;
+    private string _currentResourceId = string.Empty;
     private const string LocalizationContributionUrl = "https://svl.qzz.io/contribute";
 
     public override string Title => "资源详情";
@@ -336,6 +562,8 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
     public ObservableCollection<string> VersionOptions { get; } = [];
 
+    public ObservableCollection<VersionGroupItem> VersionGroups { get; } = [];
+
     public ObservableCollection<string> DependencyItems { get; } = [];
 
     public ObservableCollection<string> DownloadOptions { get; } = [];
@@ -345,6 +573,9 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
     public ObservableCollection<string> HardConflictDependencyItems { get; } = [];
 
     public ObservableCollection<string> FunctionalOverlapDependencyItems { get; } = [];
+
+    [ObservableProperty]
+    private bool _isRequiredDependenciesExpanded = true;
 
     [ObservableProperty]
     private string _selectedDownloadOption = string.Empty;
@@ -363,6 +594,10 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
     public bool HasNoVersionOptions => !HasVersionOptions;
 
+    public bool HasVersionGroups => VersionGroups.Count > 0;
+
+    public bool HasNoVersionGroups => !HasVersionGroups;
+
     public bool HasDependencyItems => DependencyItems.Count > 0;
 
     public bool HasNoDependencyItems => !HasDependencyItems;
@@ -375,7 +610,37 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
     public bool HasDownloadOptions => DownloadOptions.Count > 0;
 
+    public bool CanOpenSelectedDownloadOptionInBrowser => TryResolveDownloadOptionUrl(SelectedDownloadOption).Length > 0;
+
     public bool CanQueueDownload => !string.IsNullOrWhiteSpace(SelectedDownloadOption);
+
+    public bool CanInstallSelectedDownloadOption => CanQueueDownload;
+
+    public bool CanSaveSelectedDownloadOptionAs => CanQueueDownload;
+
+    public bool IsSmapiResource => IsSmapiResourceCore(DisplayResourceName, ResourceIdText, _currentSourceToken, SourcePageUrl);
+
+    public bool ShowRequiredDependencyList => HasRequiredDependencyItems && IsRequiredDependenciesExpanded;
+
+    public string RequiredDependencyHeaderText => HasRequiredDependencyItems
+        ? $"前置依赖（必需）{RequiredDependencyItems.Count}"
+        : "前置依赖（必需）";
+
+    public string RequiredDependencyCountText => RequiredDependencyItems.Count.ToString(CultureInfo.InvariantCulture);
+
+    public string HardConflictDependencyCountText => HardConflictDependencyItems.Count.ToString(CultureInfo.InvariantCulture);
+
+    public string FunctionalOverlapDependencyCountText => FunctionalOverlapDependencyItems.Count.ToString(CultureInfo.InvariantCulture);
+
+    public string RequiredDependencyToggleText => IsRequiredDependenciesExpanded ? "收起" : "展开";
+
+    public string VersionSectionTitle => HasVersionOptions ? $"可选版本（{VersionOptions.Count}）" : "可选版本";
+
+    public string DependencySectionTitle => HasDependencyItems ? $"依赖信息（{DependencyItems.Count}）" : "依赖信息";
+
+    public string DownloadSectionTitle => HasDownloadOptions ? $"下载选项（{DownloadOptions.Count}）" : "下载选项";
+
+    public string VersionGroupHintText => $"来源：{(string.IsNullOrWhiteSpace(ResourceSource) ? "未知" : ResourceSource)} · 按兼容策略分组";
 
     public string CopyIdButtonText => IsCollectionDetails ? "尾链" : "ID";
 
@@ -397,19 +662,45 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         {
             OnPropertyChanged(nameof(HasVersionOptions));
             OnPropertyChanged(nameof(HasNoVersionOptions));
+            OnPropertyChanged(nameof(VersionSectionTitle));
+            RebuildVersionGroups();
+        };
+        VersionGroups.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasVersionGroups));
+            OnPropertyChanged(nameof(HasNoVersionGroups));
         };
         DependencyItems.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasDependencyItems));
             OnPropertyChanged(nameof(HasNoDependencyItems));
+            OnPropertyChanged(nameof(DependencySectionTitle));
         };
-        RequiredDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRequiredDependencyItems));
-        HardConflictDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHardConflictDependencyItems));
-        FunctionalOverlapDependencyItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasFunctionalOverlapDependencyItems));
+        RequiredDependencyItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasRequiredDependencyItems));
+            OnPropertyChanged(nameof(RequiredDependencyHeaderText));
+            OnPropertyChanged(nameof(RequiredDependencyCountText));
+            OnPropertyChanged(nameof(ShowRequiredDependencyList));
+        };
+        HardConflictDependencyItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasHardConflictDependencyItems));
+            OnPropertyChanged(nameof(HardConflictDependencyCountText));
+        };
+        FunctionalOverlapDependencyItems.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasFunctionalOverlapDependencyItems));
+            OnPropertyChanged(nameof(FunctionalOverlapDependencyCountText));
+        };
         DownloadOptions.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasDownloadOptions));
             OnPropertyChanged(nameof(CanQueueDownload));
+            OnPropertyChanged(nameof(CanInstallSelectedDownloadOption));
+            OnPropertyChanged(nameof(CanSaveSelectedDownloadOptionAs));
+            OnPropertyChanged(nameof(DownloadSectionTitle));
+            OnPropertyChanged(nameof(CanOpenSelectedDownloadOptionInBrowser));
         };
     }
 
@@ -425,6 +716,8 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         ResourceTimeTag = parsed.TimeTag;
         ResourceSource = string.IsNullOrWhiteSpace(parsed.SourceLabel) ? "-" : parsed.SourceLabel;
         ResourceIdText = string.IsNullOrWhiteSpace(parsed.ResourceId) ? "-" : parsed.ResourceId;
+        _currentResourceId = parsed.ResourceId;
+        _currentSourceToken = parsed.SourceToken;
         IsCollectionDetails = parsed.IsCollection;
         SourcePageUrl = BuildSourcePageUrl(parsed);
 
@@ -438,12 +731,14 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         DetailsStatus = "待加载详情";
 
         VersionOptions.Clear();
+        VersionGroups.Clear();
         DependencyItems.Clear();
         RequiredDependencyItems.Clear();
         HardConflictDependencyItems.Clear();
         FunctionalOverlapDependencyItems.Clear();
         DownloadOptions.Clear();
         SelectedDownloadOption = string.Empty;
+        IsRequiredDependenciesExpanded = true;
 
         RaiseResourceHeaderState();
     }
@@ -468,6 +763,8 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         ResourceMetricTag = parsed.MetricTag;
         ResourceTimeTag = parsed.TimeTag;
         ResourceIdText = string.IsNullOrWhiteSpace(parsed.ResourceId) ? ResourceIdText : parsed.ResourceId;
+        _currentResourceId = string.IsNullOrWhiteSpace(parsed.ResourceId) ? _currentResourceId : parsed.ResourceId;
+        _currentSourceToken = string.IsNullOrWhiteSpace(parsed.SourceToken) ? _currentSourceToken : parsed.SourceToken;
         IsCollectionDetails = parsed.IsCollection;
         SourcePageUrl = BuildSourcePageUrl(parsed);
 
@@ -482,6 +779,7 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         {
             VersionOptions.Add(item);
         }
+        RebuildVersionGroups();
 
         DependencyItems.Clear();
         foreach (var item in details.Dependencies.Take(12))
@@ -498,6 +796,7 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
 
         SelectedDownloadOption = DownloadOptions.FirstOrDefault() ?? string.Empty;
         DetailsStatus = "详情已加载";
+        IsRequiredDependenciesExpanded = true;
 
         RaiseResourceHeaderState();
     }
@@ -633,22 +932,108 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
     [RelayCommand]
     private void QueueDownload()
     {
+        InstallSelectedDownloadOption();
+    }
+
+    [RelayCommand]
+    private void InstallSelectedDownloadOption()
+    {
         if (string.IsNullOrWhiteSpace(SelectedDownloadOption))
         {
             return;
         }
 
-        QueueDownloadRequested?.Invoke(new ExternalDownloadRequest
+        var request = BuildExternalDownloadRequest(ExternalDownloadAction.Install);
+        QueueDownloadRequested?.Invoke(request);
+        DetailsStatus = IsSmapiResource ? "已提交 SMAPI 安装任务" : "已提交安装任务";
+        OnPropertyChanged(nameof(DetailsStatus));
+    }
+
+    [RelayCommand]
+    private void SaveSelectedDownloadOptionAs()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedDownloadOption))
         {
-            ResourceName = DisplayResourceName,
-            ResourceSource = ResourceSource,
-            SelectedDownloadOption = SelectedDownloadOption
-        });
+            return;
+        }
+
+        var request = BuildExternalDownloadRequest(ExternalDownloadAction.SaveAs);
+        QueueDownloadRequested?.Invoke(request);
+        DetailsStatus = "已提交另存为任务";
+        OnPropertyChanged(nameof(DetailsStatus));
+    }
+
+    [RelayCommand]
+    private void ToggleRequiredDependenciesExpanded()
+    {
+        if (!HasRequiredDependencyItems)
+        {
+            return;
+        }
+
+        IsRequiredDependenciesExpanded = !IsRequiredDependenciesExpanded;
+    }
+
+    [RelayCommand]
+    private void OpenSelectedDownloadOptionInBrowser()
+    {
+        var url = TryResolveDownloadOptionUrl(SelectedDownloadOption);
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            DetailsStatus = "当前条目不支持浏览器打开";
+            OnPropertyChanged(nameof(DetailsStatus));
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+            DetailsStatus = "已在浏览器打开下载链接";
+        }
+        catch
+        {
+            DetailsStatus = "打开下载链接失败";
+        }
+
+        OnPropertyChanged(nameof(DetailsStatus));
+    }
+
+    [RelayCommand]
+    private void OpenDependencySource(string? dependencyText)
+    {
+        var targetUrl = ResolveDependencySourceUrl(dependencyText);
+        if (string.IsNullOrWhiteSpace(targetUrl))
+        {
+            DetailsStatus = "当前依赖没有可跳转来源";
+            OnPropertyChanged(nameof(DetailsStatus));
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = targetUrl,
+                UseShellExecute = true
+            });
+            DetailsStatus = "已打开依赖来源页";
+        }
+        catch
+        {
+            DetailsStatus = "打开依赖来源页失败";
+        }
+
+        OnPropertyChanged(nameof(DetailsStatus));
     }
 
     partial void OnUseLocalizedNameChanged(bool value)
     {
         OnPropertyChanged(nameof(DisplayResourceName));
+        OnPropertyChanged(nameof(IsSmapiResource));
     }
 
     partial void OnUseLocalizedSummaryChanged(bool value)
@@ -659,6 +1044,15 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
     partial void OnSelectedDownloadOptionChanged(string value)
     {
         OnPropertyChanged(nameof(CanQueueDownload));
+        OnPropertyChanged(nameof(CanInstallSelectedDownloadOption));
+        OnPropertyChanged(nameof(CanSaveSelectedDownloadOptionAs));
+        OnPropertyChanged(nameof(CanOpenSelectedDownloadOptionInBrowser));
+    }
+
+    partial void OnIsRequiredDependenciesExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(RequiredDependencyToggleText));
+        OnPropertyChanged(nameof(ShowRequiredDependencyList));
     }
 
     private void RaiseResourceHeaderState()
@@ -681,18 +1075,251 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         OnPropertyChanged(nameof(HasLocalizedResourceSummary));
         OnPropertyChanged(nameof(HasVersionOptions));
         OnPropertyChanged(nameof(HasNoVersionOptions));
+        OnPropertyChanged(nameof(HasVersionGroups));
+        OnPropertyChanged(nameof(HasNoVersionGroups));
+        OnPropertyChanged(nameof(VersionGroupHintText));
+        OnPropertyChanged(nameof(VersionSectionTitle));
         OnPropertyChanged(nameof(HasDependencyItems));
         OnPropertyChanged(nameof(HasNoDependencyItems));
+        OnPropertyChanged(nameof(DependencySectionTitle));
         OnPropertyChanged(nameof(HasRequiredDependencyItems));
         OnPropertyChanged(nameof(HasHardConflictDependencyItems));
         OnPropertyChanged(nameof(HasFunctionalOverlapDependencyItems));
+        OnPropertyChanged(nameof(RequiredDependencyHeaderText));
+        OnPropertyChanged(nameof(RequiredDependencyCountText));
+        OnPropertyChanged(nameof(HardConflictDependencyCountText));
+        OnPropertyChanged(nameof(FunctionalOverlapDependencyCountText));
+        OnPropertyChanged(nameof(RequiredDependencyToggleText));
+        OnPropertyChanged(nameof(ShowRequiredDependencyList));
         OnPropertyChanged(nameof(HasDownloadOptions));
+        OnPropertyChanged(nameof(DownloadSectionTitle));
         OnPropertyChanged(nameof(DisplayResourceName));
         OnPropertyChanged(nameof(DisplayResourceSummary));
         OnPropertyChanged(nameof(SourcePageUrl));
         OnPropertyChanged(nameof(HasSourcePageUrl));
         OnPropertyChanged(nameof(DetailsStatus));
         OnPropertyChanged(nameof(CanQueueDownload));
+        OnPropertyChanged(nameof(CanInstallSelectedDownloadOption));
+        OnPropertyChanged(nameof(CanSaveSelectedDownloadOptionAs));
+        OnPropertyChanged(nameof(CanOpenSelectedDownloadOptionInBrowser));
+        OnPropertyChanged(nameof(IsSmapiResource));
+    }
+
+    private void RebuildVersionGroups()
+    {
+        VersionGroups.Clear();
+        if (VersionOptions.Count <= 0)
+        {
+            return;
+        }
+
+        var source = string.IsNullOrWhiteSpace(ResourceSource) ? "未知来源" : ResourceSource;
+        var grouped = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+        {
+            ["兼容推荐"] = [],
+            ["稳定版本"] = [],
+            ["预发布测试"] = [],
+            ["来源链接"] = [],
+            ["其它信息"] = []
+        };
+
+        foreach (var version in VersionOptions)
+        {
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                continue;
+            }
+
+            var key = ClassifyVersionStrategy(version);
+            if (!grouped.TryGetValue(key, out var bucket))
+            {
+                bucket = [];
+                grouped[key] = bucket;
+            }
+
+            bucket.Add(version.Trim());
+        }
+
+        foreach (var item in grouped)
+        {
+            if (item.Value.Count <= 0)
+            {
+                continue;
+            }
+
+            VersionGroups.Add(new VersionGroupItem
+            {
+                GroupTitle = item.Key,
+                SourceTag = source,
+                CountText = item.Value.Count.ToString(CultureInfo.InvariantCulture),
+                Items = item.Value
+            });
+        }
+    }
+
+    private static string ClassifyVersionStrategy(string version)
+    {
+        var text = version.Trim();
+        if (text.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return "来源链接";
+        }
+
+        if (text.Contains("兼容", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("support", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("stardew", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("game", StringComparison.OrdinalIgnoreCase))
+        {
+            return "兼容推荐";
+        }
+
+        if (Regex.IsMatch(text, "(?:alpha|beta|preview|rc|nightly|dev|pre)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            return "预发布测试";
+        }
+
+        if (Regex.IsMatch(text, "(?:tag|v?\\d+\\.\\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            return "稳定版本";
+        }
+
+        return "其它信息";
+    }
+
+    private string ResolveDependencySourceUrl(string? dependencyText)
+    {
+        var source = ResourceSource ?? string.Empty;
+
+        if (source.Contains("nexus", StringComparison.OrdinalIgnoreCase))
+        {
+            if (TryExtractFirstNumericId(dependencyText, out var nexusId) && nexusId > 0)
+            {
+                return $"https://www.nexusmods.com/stardewvalley/mods/{nexusId}";
+            }
+
+            return "https://www.nexusmods.com/stardewvalley/mods";
+        }
+
+        if (source.Contains("curse", StringComparison.OrdinalIgnoreCase))
+        {
+            if (TryExtractFirstNumericId(dependencyText, out var curseId) && curseId > 0)
+            {
+                return $"https://www.curseforge.com/projects/{curseId}";
+            }
+
+            return "https://www.curseforge.com/stardewvalley/mods";
+        }
+
+        if (source.Contains("github", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://github.com/Pathoschild/SMAPI/releases";
+        }
+
+        return HasSourcePageUrl ? SourcePageUrl : string.Empty;
+    }
+
+    private static bool TryExtractFirstNumericId(string? text, out long id)
+    {
+        id = 0;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(text, "(\\d+)", RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        return long.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out id) && id > 0;
+    }
+
+    private static string TryResolveDownloadOptionUrl(string option)
+    {
+        if (string.IsNullOrWhiteSpace(option))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = option.Trim();
+        var markerIndex = trimmed.IndexOf("http://", StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            markerIndex = trimmed.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (markerIndex >= 0)
+        {
+            var candidate = trimmed[markerIndex..].Trim();
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var parsedByMarker) &&
+                (parsedByMarker.Scheme == Uri.UriSchemeHttp || parsedByMarker.Scheme == Uri.UriSchemeHttps))
+            {
+                return parsedByMarker.ToString();
+            }
+        }
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var parsed) &&
+            (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+        {
+            return parsed.ToString();
+        }
+
+        return string.Empty;
+    }
+
+    private ExternalDownloadRequest BuildExternalDownloadRequest(ExternalDownloadAction action)
+    {
+        var resolvedResourceId = string.IsNullOrWhiteSpace(_currentResourceId)
+            ? ResourceIdText
+            : _currentResourceId;
+
+        if (string.Equals(resolvedResourceId, "-", StringComparison.Ordinal))
+        {
+            resolvedResourceId = string.Empty;
+        }
+
+        return new ExternalDownloadRequest
+        {
+            Action = action,
+            ResourceName = DisplayResourceName,
+            ResourceSource = ResourceSource,
+            ResourceId = resolvedResourceId,
+            SourceToken = _currentSourceToken,
+            SourcePageUrl = SourcePageUrl,
+            IsSmapiResource = IsSmapiResource,
+            SelectedDownloadOption = SelectedDownloadOption
+        };
+    }
+
+    private static bool IsSmapiResourceCore(
+        string displayName,
+        string resourceIdText,
+        string sourceToken,
+        string sourcePageUrl)
+    {
+        var checks = new[]
+        {
+            displayName,
+            resourceIdText,
+            sourceToken,
+            sourcePageUrl
+        };
+
+        if (checks.Any(text => !string.IsNullOrWhiteSpace(text) && text.Contains("smapi", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(resourceIdText) &&
+            (string.Equals(resourceIdText.Trim(), "2400", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(resourceIdText.Trim(), "898372", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private void ClassifyDependencyGroups()
@@ -925,6 +1552,17 @@ public sealed partial class ModDetailsPageViewModel : FeaturePageViewModelBase
         public string TimeTag { get; set; } = string.Empty;
         public string SourceToken { get; set; } = string.Empty;
         public bool IsCollection { get; set; }
+    }
+
+    public sealed class VersionGroupItem
+    {
+        public string GroupTitle { get; init; } = string.Empty;
+
+        public string SourceTag { get; init; } = string.Empty;
+
+        public string CountText { get; init; } = "0";
+
+        public List<string> Items { get; init; } = [];
     }
 }
 

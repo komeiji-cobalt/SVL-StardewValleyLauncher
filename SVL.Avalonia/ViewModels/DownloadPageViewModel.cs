@@ -13,6 +13,7 @@ using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace SVL.Avalonia.ViewModels;
 
@@ -37,6 +38,7 @@ public partial class DownloadPageViewModel : ObservableObject
     private readonly HttpDownloadService _httpDownloadService;
     private readonly NexusModDownloadResolverService _nexusModDownloadResolverService;
     private readonly DownloadInstallService _downloadInstallService;
+    private readonly SmapiInstallService _smapiInstallService;
     private readonly RemoteCatalogService _remoteCatalogService;
     private readonly DownloadTaskStateStore _taskStateStore;
     private readonly RetryDiffReportService _retryDiffReportService;
@@ -403,6 +405,7 @@ public partial class DownloadPageViewModel : ObservableObject
         HttpDownloadService httpDownloadService,
         NexusModDownloadResolverService nexusModDownloadResolverService,
         DownloadInstallService downloadInstallService,
+        SmapiInstallService smapiInstallService,
         RemoteCatalogService remoteCatalogService,
         DownloadTaskStateStore taskStateStore,
         RetryDiffReportService retryDiffReportService)
@@ -416,6 +419,7 @@ public partial class DownloadPageViewModel : ObservableObject
         _httpDownloadService = httpDownloadService;
         _nexusModDownloadResolverService = nexusModDownloadResolverService;
         _downloadInstallService = downloadInstallService;
+        _smapiInstallService = smapiInstallService;
         _remoteCatalogService = remoteCatalogService;
         _remoteCatalogService.DebugLogger = message => EmitLog($"[Catalog] {message}");
         _taskStateStore = taskStateStore;
@@ -1347,28 +1351,517 @@ public partial class DownloadPageViewModel : ObservableObject
 
     public void AddTaskFromExternal(ExternalDownloadRequest request)
     {
+        _ = AddTaskFromExternalAsync(request);
+    }
+
+    public async Task<bool> AddTaskFromExternalAsync(ExternalDownloadRequest request)
+    {
         if (request == null || string.IsNullOrWhiteSpace(request.ResourceName))
         {
-            return;
+            return false;
         }
 
-        var taskName = request.ToTaskDisplayName();
+        if (request.Action == ExternalDownloadAction.SaveAs)
+        {
+            return await QueueSaveOnlyTaskFromExternalAsync(request);
+        }
 
-        DownloadTasks.Insert(0, new DownloadTaskItem
+        if (IsSmapiExternalRequest(request))
+        {
+            return await QueueSmapiInstallTaskFromExternalAsync(request);
+        }
+
+        return QueueGenericInstallTaskFromExternal(request);
+    }
+
+    private bool QueueGenericInstallTaskFromExternal(ExternalDownloadRequest request)
+    {
+        var taskName = request.ToTaskDisplayName();
+        var sourceUrl = TryResolveDirectDownloadUrl(request.SelectedDownloadOption);
+        var outputPath = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(sourceUrl) &&
+            Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            var fileName = ResolveDownloadFileName(uri, request.ResolveSuggestedFileName());
+            outputPath = Path.Combine(_downloadRootPath, fileName);
+            taskName = fileName;
+        }
+
+        var task = new DownloadTaskItem
         {
             Name = taskName,
-            Status = "已加入队列",
+            Status = string.IsNullOrWhiteSpace(outputPath) ? "已加入队列" : "已加入队列（真实下载）",
             Progress = 0,
             TaskKind = DownloadTaskKind.Generic,
-            SourceUrl = request.SelectedDownloadOption,
+            TaskAction = DownloadTaskAction.InstallMod,
+            SourceUrl = sourceUrl,
+            OutputFilePath = outputPath,
             CanCancel = false,
             CanRetry = false
-        });
-        DownloadTasks[0].StatusIconSource = ResolveTaskStatusIcon(DownloadTasks[0]);
+        };
 
-        Status = $"已加入下载队列: {taskName}";
+        EnqueueExternalTask(task, $"已加入下载队列: {taskName}");
+        return true;
+    }
+
+    private async Task<bool> QueueSaveOnlyTaskFromExternalAsync(ExternalDownloadRequest request)
+    {
+        var resolved = await ResolveExternalDownloadTargetAsync(request);
+        if (!resolved.IsSuccess)
+        {
+            Status = resolved.Message;
+            if (!string.IsNullOrWhiteSpace(resolved.BrowserGuideUrl))
+            {
+                await _dialogService.ShowBrowserDownloadGuideDialogAsync(
+                    resolved.BrowserGuideUrl,
+                    "浏览器下载指引",
+                    "该资源当前无法直接解析下载地址，请在浏览器完成下载后再返回。"
+                );
+            }
+
+            return false;
+        }
+
+        var suggestedFileName = CreateSafeFileName(resolved.FileName);
+        var savePath = await _dialogService.SaveFilePathAsync(
+            "另存为",
+            suggestedFileName,
+            BuildSaveFileTypes(suggestedFileName));
+        if (string.IsNullOrWhiteSpace(savePath))
+        {
+            Status = "已取消另存为";
+            return false;
+        }
+
+        var task = new DownloadTaskItem
+        {
+            Name = Path.GetFileName(savePath),
+            Status = "已加入队列（另存为）",
+            Progress = 0,
+            TaskKind = DownloadTaskKind.Generic,
+            TaskAction = DownloadTaskAction.SaveOnly,
+            SourceUrl = resolved.DownloadUrl,
+            OutputFilePath = savePath,
+            CanCancel = false,
+            CanRetry = false
+        };
+
+        EnqueueExternalTask(task, $"已加入另存为队列: {task.Name}");
+        return true;
+    }
+
+    private async Task<bool> QueueSmapiInstallTaskFromExternalAsync(ExternalDownloadRequest request)
+    {
+        if (!await EnsureGamePathConfiguredAsync())
+        {
+            Status = "SMAPI 安装失败：未配置有效游戏目录";
+            return false;
+        }
+
+        var gameBasePath = ResolveCurrentGamePath();
+        if (string.IsNullOrWhiteSpace(gameBasePath) || !Directory.Exists(gameBasePath))
+        {
+            Status = "SMAPI 安装失败：游戏路径不可用";
+            return false;
+        }
+
+        var confirmed = await _dialogService.ShowGamePathConfirmDialogAsync(
+            gameBasePath,
+            "确认 SMAPI 基础路径",
+            "SMAPI 将基于该目录创建新的版本实例，请确认路径正确。"
+        );
+        if (!confirmed)
+        {
+            Status = "已取消 SMAPI 安装";
+            return false;
+        }
+
+        var defaultName = BuildSmapiDefaultInstanceName(request);
+        var rawInstanceName = await _dialogService.ShowInstanceNameDialogAsync("输入 SMAPI 实例名称", defaultName);
+        if (string.IsNullOrWhiteSpace(rawInstanceName))
+        {
+            Status = "已取消 SMAPI 安装";
+            return false;
+        }
+
+        var instanceName = CreateSafeFileName(rawInstanceName);
+        if (string.IsNullOrWhiteSpace(instanceName))
+        {
+            Status = "实例名称无效";
+            return false;
+        }
+
+        var versionRoot = Path.Combine(gameBasePath, "versions", instanceName);
+        if (Directory.Exists(versionRoot))
+        {
+            Status = $"实例名称已存在: {instanceName}";
+            return false;
+        }
+
+        var resolved = await ResolveExternalDownloadTargetAsync(request);
+        if (!resolved.IsSuccess)
+        {
+            Status = resolved.Message;
+            if (!string.IsNullOrWhiteSpace(resolved.BrowserGuideUrl))
+            {
+                await _dialogService.ShowBrowserDownloadGuideDialogAsync(
+                    resolved.BrowserGuideUrl,
+                    "浏览器下载指引",
+                    "该 SMAPI 资源需要在浏览器完成下载授权，请完成后重试。"
+                );
+            }
+
+            return false;
+        }
+
+        var safeResolvedFileName = CreateSafeFileName(resolved.FileName);
+        var outputPath = Path.Combine(_downloadRootPath, safeResolvedFileName);
+        var task = new DownloadTaskItem
+        {
+            Name = $"SMAPI 安装 - {instanceName}",
+            Status = "已加入队列（SMAPI 安装）",
+            Progress = 0,
+            TaskKind = DownloadTaskKind.Generic,
+            TaskAction = DownloadTaskAction.InstallSmapi,
+            SourceUrl = resolved.DownloadUrl,
+            OutputFilePath = outputPath,
+            TargetGamePath = gameBasePath,
+            TargetInstanceName = instanceName,
+            CanCancel = false,
+            CanRetry = false
+        };
+
+        EnqueueExternalTask(task, $"已加入 SMAPI 安装队列: {instanceName}");
+        return true;
+    }
+
+    private void EnqueueExternalTask(DownloadTaskItem task, string statusText)
+    {
+        DownloadTasks.Insert(0, task);
+        DownloadTasks[0].StatusIconSource = ResolveTaskStatusIcon(DownloadTasks[0]);
+        Status = statusText;
         SaveTaskState();
         _ = ProcessQueueAsync();
+        NavigateToTaskStatusRequested?.Invoke();
+    }
+
+    private async Task<ResolvedExternalDownloadTarget> ResolveExternalDownloadTargetAsync(ExternalDownloadRequest request)
+    {
+        var sourceToken = NormalizeSourceToken(request);
+        var directUrl = TryResolveDirectDownloadUrl(request.SelectedDownloadOption);
+        var fallbackGuideUrl = BuildFallbackGuideUrl(request);
+
+        if (sourceToken == "nexusmods" &&
+            TryExtractPositiveLong(request.ResourceId, out var modId) &&
+            TryExtractFileIdFromOption(request.SelectedDownloadOption, out var fileId))
+        {
+            var settings = _settingsStore.Load();
+            if (string.IsNullOrWhiteSpace(settings.NexusApiKey) && string.IsNullOrWhiteSpace(settings.NexusOAuthAccessToken))
+            {
+                return ResolvedExternalDownloadTarget.Fail("请先在设置页完成 Nexus 登录后再下载", fallbackGuideUrl);
+            }
+
+            var info = new NxmLinkInfo
+            {
+                ResourceType = NxmResourceType.ModFile,
+                GameDomain = "stardewvalley",
+                ModId = modId,
+                FileId = fileId
+            };
+
+            var resolved = await _nexusModDownloadResolverService.ResolveDownloadUrlAsync(
+                info,
+                settings.NexusApiKey,
+                settings.NexusOAuthAccessToken);
+            if (resolved.IsSuccess &&
+                Uri.TryCreate(resolved.DownloadUrl, UriKind.Absolute, out var resolvedUri))
+            {
+                var fileName = ResolveDownloadFileName(resolvedUri, resolved.FileName);
+                return ResolvedExternalDownloadTarget.Success(resolved.DownloadUrl, fileName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(directUrl) &&
+                Uri.TryCreate(directUrl, UriKind.Absolute, out var directUri))
+            {
+                var fallbackName = ResolveDownloadFileName(directUri, request.ResolveSuggestedFileName());
+                return ResolvedExternalDownloadTarget.Success(directUrl, fallbackName);
+            }
+
+            return ResolvedExternalDownloadTarget.Fail(resolved.Message, fallbackGuideUrl);
+        }
+
+        if (sourceToken == "curseforge" &&
+            TryExtractPositiveLong(request.ResourceId, out var curseforgeModId) &&
+            TryExtractFileIdFromOption(request.SelectedDownloadOption, out var curseforgeFileId))
+        {
+            var resolvedUrl = await _remoteCatalogService.ResolveCurseforgeFileDownloadUrlAsync(
+                curseforgeModId,
+                curseforgeFileId,
+                directUrl);
+            if (!string.IsNullOrWhiteSpace(resolvedUrl) &&
+                Uri.TryCreate(resolvedUrl, UriKind.Absolute, out var curseUri))
+            {
+                var fileName = ResolveDownloadFileName(curseUri, request.ResolveSuggestedFileName());
+                return ResolvedExternalDownloadTarget.Success(resolvedUrl, fileName);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(directUrl) &&
+            Uri.TryCreate(directUrl, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            var fileName = ResolveDownloadFileName(uri, request.ResolveSuggestedFileName());
+            return ResolvedExternalDownloadTarget.Success(directUrl, fileName);
+        }
+
+        return ResolvedExternalDownloadTarget.Fail("未解析到可用下载地址", fallbackGuideUrl);
+    }
+
+    private string ResolveCurrentGamePath()
+    {
+        var settings = _settingsStore.Load();
+        if (!string.IsNullOrWhiteSpace(settings.PreferredInstancePath) && Directory.Exists(settings.PreferredInstancePath))
+        {
+            return settings.PreferredInstancePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(GamePathHint) && Directory.Exists(GamePathHint))
+        {
+            return GamePathHint;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsSmapiExternalRequest(ExternalDownloadRequest request)
+    {
+        if (request.IsSmapiResource)
+        {
+            return true;
+        }
+
+        var combined = string.Join('|',
+            request.ResourceName ?? string.Empty,
+            request.ResourceSource ?? string.Empty,
+            request.SourceToken ?? string.Empty,
+            request.SourcePageUrl ?? string.Empty,
+            request.ResourceId ?? string.Empty,
+            request.SelectedDownloadOption ?? string.Empty);
+
+        if (combined.Contains("smapi", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals((request.ResourceId ?? string.Empty).Trim(), "2400", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals((request.ResourceId ?? string.Empty).Trim(), "898372", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeSourceToken(ExternalDownloadRequest request)
+    {
+        var raw = string.Join('|',
+            request.SourceToken ?? string.Empty,
+            request.ResourceSource ?? string.Empty)
+            .ToLowerInvariant();
+
+        if (raw.Contains("nexus"))
+        {
+            return "nexusmods";
+        }
+
+        if (raw.Contains("curse"))
+        {
+            return "curseforge";
+        }
+
+        if (raw.Contains("github"))
+        {
+            return "github";
+        }
+
+        return string.Empty;
+    }
+
+    private static string TryResolveDirectDownloadUrl(string option)
+    {
+        if (string.IsNullOrWhiteSpace(option))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = option.Trim();
+        var markerIndex = trimmed.IndexOf("http://", StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            markerIndex = trimmed.IndexOf("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (markerIndex >= 0)
+        {
+            var candidate = trimmed[markerIndex..].Trim();
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var byMarker) &&
+                (byMarker.Scheme == Uri.UriSchemeHttp || byMarker.Scheme == Uri.UriSchemeHttps))
+            {
+                return byMarker.ToString();
+            }
+        }
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var parsed) &&
+            (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+        {
+            return parsed.ToString();
+        }
+
+        return string.Empty;
+    }
+
+    private static bool TryExtractFileIdFromOption(string option, out long fileId)
+    {
+        fileId = 0;
+        if (string.IsNullOrWhiteSpace(option))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(option, "(?:File\\s+)?(?<id>\\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        return long.TryParse(match.Groups["id"].Value, out fileId) && fileId > 0;
+    }
+
+    private static bool TryExtractPositiveLong(string raw, out long value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        if (long.TryParse(raw.Trim(), out var parsed) && parsed > 0)
+        {
+            value = parsed;
+            return true;
+        }
+
+        var match = Regex.Match(raw, "(?<id>\\d+)", RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        return long.TryParse(match.Groups["id"].Value, out value) && value > 0;
+    }
+
+    private static string BuildFallbackGuideUrl(ExternalDownloadRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.SourcePageUrl))
+        {
+            return request.SourcePageUrl;
+        }
+
+        var sourceToken = NormalizeSourceToken(request);
+        if (sourceToken == "nexusmods")
+        {
+            if (TryExtractPositiveLong(request.ResourceId, out var nexusModId))
+            {
+                return $"https://www.nexusmods.com/stardewvalley/mods/{nexusModId}";
+            }
+
+            return "https://www.nexusmods.com/stardewvalley/mods";
+        }
+
+        if (sourceToken == "curseforge")
+        {
+            if (TryExtractPositiveLong(request.ResourceId, out var curseId))
+            {
+                return $"https://www.curseforge.com/projects/{curseId}";
+            }
+
+            return "https://www.curseforge.com/stardewvalley/mods";
+        }
+
+        return "https://github.com/Pathoschild/SMAPI/releases";
+    }
+
+    private static string BuildSmapiDefaultInstanceName(ExternalDownloadRequest request)
+    {
+        var text = string.Join(' ', request.ResourceName, request.SelectedDownloadOption);
+        var match = Regex.Match(text, "(?<version>\\d+\\.\\d+(?:\\.\\d+)*)", RegexOptions.CultureInvariant);
+        if (match.Success)
+        {
+            return $"SMAPI {match.Groups["version"].Value}";
+        }
+
+        return "SMAPI";
+    }
+
+    private static IReadOnlyList<global::Avalonia.Platform.Storage.FilePickerFileType> BuildSaveFileTypes(string fileName)
+    {
+        var ext = Path.GetExtension(fileName)?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ext))
+        {
+            return [new global::Avalonia.Platform.Storage.FilePickerFileType("所有文件") { Patterns = ["*.*"] }];
+        }
+
+        var normalized = ext.StartsWith('.') ? ext : "." + ext;
+        var label = normalized.ToLowerInvariant() switch
+        {
+            ".zip" => "ZIP 压缩包",
+            ".7z" => "7z 压缩包",
+            ".rar" => "RAR 压缩包",
+            _ => $"{normalized.ToUpperInvariant()} 文件"
+        };
+
+        return
+        [
+            new global::Avalonia.Platform.Storage.FilePickerFileType(label)
+            {
+                Patterns = [$"*{normalized}"]
+            },
+            new global::Avalonia.Platform.Storage.FilePickerFileType("所有文件")
+            {
+                Patterns = ["*.*"]
+            }
+        ];
+    }
+
+    private sealed class ResolvedExternalDownloadTarget
+    {
+        public bool IsSuccess { get; init; }
+
+        public string DownloadUrl { get; init; } = string.Empty;
+
+        public string FileName { get; init; } = string.Empty;
+
+        public string Message { get; init; } = string.Empty;
+
+        public string BrowserGuideUrl { get; init; } = string.Empty;
+
+        public static ResolvedExternalDownloadTarget Success(string downloadUrl, string fileName)
+        {
+            return new ResolvedExternalDownloadTarget
+            {
+                IsSuccess = true,
+                DownloadUrl = downloadUrl,
+                FileName = fileName,
+                Message = "下载地址解析成功"
+            };
+        }
+
+        public static ResolvedExternalDownloadTarget Fail(string message, string browserGuideUrl)
+        {
+            return new ResolvedExternalDownloadTarget
+            {
+                IsSuccess = false,
+                Message = string.IsNullOrWhiteSpace(message) ? "未解析到可用下载地址" : message,
+                BrowserGuideUrl = browserGuideUrl
+            };
+        }
     }
 
     private async Task LoadCategoryItemsForCurrentCategoryAsync(bool initialLoad)
@@ -2475,6 +2968,56 @@ public partial class DownloadPageViewModel : ObservableObject
 
         task.Progress = 100;
         task.CanCancel = false;
+
+        if (task.TaskAction == DownloadTaskAction.SaveOnly)
+        {
+            task.InstalledPath = task.OutputFilePath;
+            task.Status = "已完成（另存为）";
+            TaskStateChanged?.Invoke(task);
+            Status = $"另存为完成: {task.Name}";
+            SaveTaskState();
+            EmitLog($"另存为完成: {task.OutputFilePath}");
+            return;
+        }
+
+        if (task.TaskAction == DownloadTaskAction.InstallSmapi)
+        {
+            task.Status = "安装中（SMAPI）";
+            TaskStateChanged?.Invoke(task);
+            EmitLog($"下载完成，开始安装 SMAPI: {task.OutputFilePath}");
+
+            var smapiResult = await _smapiInstallService.InstallFromZipAsync(
+                task.OutputFilePath,
+                task.TargetGamePath,
+                task.TargetInstanceName);
+            if (!smapiResult.IsSuccess)
+            {
+                task.Status = smapiResult.IsCancelled ? "安装已取消" : "安装失败（可重试）";
+                task.CanRetry = true;
+                Status = $"任务失败: {task.Name}";
+                TaskStateChanged?.Invoke(task);
+                SaveTaskState();
+                EmitLog($"SMAPI 安装失败: {task.Name}, 错误: {smapiResult.Message}");
+                return;
+            }
+
+            task.InstalledPath = smapiResult.RuntimePath;
+            task.Status = "已完成（SMAPI）";
+            TaskStateChanged?.Invoke(task);
+            Status = $"SMAPI 安装完成: {task.TargetInstanceName}";
+
+            var settings = _settingsStore.Load();
+            settings.PreferredInstancePath = smapiResult.RuntimePath;
+            settings.InstanceName = task.TargetInstanceName;
+            settings.PreferredLaunchMode = "SMAPI";
+            _settingsStore.Save(settings);
+            RefreshGamePathState();
+
+            SaveTaskState();
+            EmitLog($"SMAPI 安装完成: 实例={task.TargetInstanceName}, 路径={task.InstalledPath}");
+            return;
+        }
+
         task.Status = "安装中";
         TaskStateChanged?.Invoke(task);
         EmitLog($"下载完成，进入安装阶段: {task.OutputFilePath}");
@@ -3184,6 +3727,7 @@ public partial class DownloadPageViewModel : ObservableObject
                     CanRetry = record.CanRetry,
                     CanCancel = record.CanCancel,
                     TaskKind = record.TaskKind,
+                    TaskAction = record.TaskAction,
                     SourceUrl = record.SourceUrl,
                     OutputFilePath = record.OutputFilePath,
                     InstalledPath = record.InstalledPath,
@@ -3191,6 +3735,8 @@ public partial class DownloadPageViewModel : ObservableObject
                     BackupPath = record.BackupPath,
                     FailedDetails = record.FailedDetails,
                     RetryReportPath = record.RetryReportPath,
+                    TargetGamePath = record.TargetGamePath,
+                    TargetInstanceName = record.TargetInstanceName,
                     StatusIconSource = string.Empty,
                     DependencyUrls = record.DependencyUrls,
                     FailedDownloadUrls = record.FailedDownloadUrls,

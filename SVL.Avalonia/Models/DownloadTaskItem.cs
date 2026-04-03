@@ -10,6 +10,13 @@ public enum DownloadTaskKind
     NxmCollection
 }
 
+public enum DownloadTaskAction
+{
+    InstallMod,
+    SaveOnly,
+    InstallSmapi
+}
+
 public partial class DownloadTaskItem : ObservableObject
 {
     [ObservableProperty]
@@ -29,6 +36,9 @@ public partial class DownloadTaskItem : ObservableObject
 
     [ObservableProperty]
     private DownloadTaskKind _taskKind = DownloadTaskKind.Generic;
+
+    [ObservableProperty]
+    private DownloadTaskAction _taskAction = DownloadTaskAction.InstallMod;
 
     [ObservableProperty]
     private string _sourceUrl = string.Empty;
@@ -53,6 +63,12 @@ public partial class DownloadTaskItem : ObservableObject
 
     [ObservableProperty]
     private string _statusIconSource = string.Empty;
+
+    [ObservableProperty]
+    private string _targetGamePath = string.Empty;
+
+    [ObservableProperty]
+    private string _targetInstanceName = string.Empty;
 
     public bool HasReportPath => !string.IsNullOrWhiteSpace(ReportPath);
 

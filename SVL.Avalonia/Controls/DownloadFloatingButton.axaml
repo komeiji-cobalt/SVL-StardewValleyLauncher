@@ -2,15 +2,45 @@
 						 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
 						 x:Class="SVL.Avalonia.Controls.DownloadFloatingButton"
 						 x:Name="Root">
-	<Border Classes="panel" Padding="8" CornerRadius="20">
-		<Button Command="{Binding OpenQueueCommand, ElementName=Root}"
+	<Grid Width="60" Height="60">
+		<Button Width="56"
+						Height="56"
+						HorizontalAlignment="Center"
+						VerticalAlignment="Center"
+						Background="#FFD2A679"
+						Foreground="White"
+						BorderThickness="0"
+						Command="{Binding OpenQueueCommand, ElementName=Root}"
 						CommandParameter="{Binding PendingTaskCount, ElementName=Root}">
-			<StackPanel Orientation="Horizontal" Spacing="6">
-				<TextBlock Text="下载任务" />
-				<Border Classes="hintCard" Padding="6,1">
-					<TextBlock Text="{Binding PendingTaskCount, ElementName=Root}" />
-				</Border>
+			<Button.Template>
+				<ControlTemplate>
+					<Border Background="{TemplateBinding Background}"
+								CornerRadius="28"
+								BorderBrush="{TemplateBinding BorderBrush}"
+								BorderThickness="{TemplateBinding BorderThickness}">
+						<ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+					</Border>
+				</ControlTemplate>
+			</Button.Template>
+			<StackPanel Orientation="Horizontal" Spacing="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+				<TextBlock Text="📥" FontSize="22" />
 			</StackPanel>
 		</Button>
-	</Border>
+
+		<Border Width="20"
+					Height="20"
+					Background="#FFEF5350"
+					CornerRadius="10"
+					HorizontalAlignment="Right"
+					VerticalAlignment="Top"
+					Margin="0,-2,-2,0"
+					IsVisible="{Binding HasPendingTasks, ElementName=Root}">
+			<TextBlock Text="{Binding PendingTaskCount, ElementName=Root}"
+						 FontSize="11"
+						 FontWeight="SemiBold"
+						 Foreground="White"
+						 HorizontalAlignment="Center"
+						 VerticalAlignment="Center" />
+		</Border>
+	</Grid>
 </UserControl>

@@ -260,9 +260,9 @@ public sealed class RemoteCatalogService
         var normalizedModTypeFilter = NormalizeFilterToken(modType);
         var safePage = Math.Max(1, page);
         var safePageSize = Math.Clamp(pageSize, 1, 30);
-        var perSourceFetchCount = includeNexus && includeCurseforge
-            ? Math.Max(1, safePageSize / 2)
-            : safePageSize;
+        var includeBothSources = includeNexus && includeCurseforge;
+        var perSourceFetchCount = safePageSize;
+        var mergedPageSize = includeBothSources ? safePageSize * 2 : safePageSize;
 
         var nexusItems = new List<RemoteSearchItem>();
         var curseItems = new List<RemoteSearchItem>();
@@ -272,9 +272,12 @@ public sealed class RemoteCatalogService
         if (includeNexus)
         {
             var nexusRaw = await SearchNexusModsAsync(normalizedKeyword, settings, safePage * perSourceFetchCount);
-            nexusItems = nexusRaw
+            var nexusFiltered = nexusRaw
                 .Where(item => MatchesModTypeFilter(item.ModType, normalizedModTypeFilter))
                 .Where(item => MatchesGameVersionFilter(item.SupportedGameVersions, item.GameVersionTag, normalizedVersionFilter))
+                .ToList();
+
+            nexusItems = nexusFiltered
                 .Skip((safePage - 1) * perSourceFetchCount)
                 .Take(perSourceFetchCount)
                 .ToList();
@@ -288,15 +291,18 @@ public sealed class RemoteCatalogService
                 await ApplyCommunityLocalizationAsync(nexusItems, "NexusMods");
             }
 
-            nexusHasMore = nexusItems.Count >= perSourceFetchCount;
+            nexusHasMore = nexusFiltered.Count > safePage * perSourceFetchCount;
         }
 
         if (includeCurseforge)
         {
             var curseRaw = await SearchCurseforgeModsAsync(normalizedKeyword, safePage * perSourceFetchCount);
-            curseItems = curseRaw
+            var curseFiltered = curseRaw
                 .Where(item => MatchesModTypeFilter(item.ModType, normalizedModTypeFilter))
                 .Where(item => MatchesGameVersionFilter(item.SupportedGameVersions, item.GameVersionTag, normalizedVersionFilter))
+                .ToList();
+
+            curseItems = curseFiltered
                 .Skip((safePage - 1) * perSourceFetchCount)
                 .Take(perSourceFetchCount)
                 .ToList();
@@ -310,11 +316,11 @@ public sealed class RemoteCatalogService
                 await ApplyCommunityLocalizationAsync(curseItems, "Curseforge");
             }
 
-            curseHasMore = curseItems.Count >= perSourceFetchCount;
+            curseHasMore = curseFiltered.Count > safePage * perSourceFetchCount;
         }
 
         var merged = MergeBySourceAlternating(nexusItems, curseItems)
-            .Take(safePageSize)
+            .Take(mergedPageSize)
             .ToList();
 
         var formatted = merged.Select(item =>
@@ -346,9 +352,9 @@ public sealed class RemoteCatalogService
 
         var safePage = Math.Max(1, page);
         var safePageSize = Math.Clamp(pageSize, 1, 30);
-        var perSourceFetchCount = includeNexus && includeCurseforge
-            ? Math.Max(1, safePageSize / 2)
-            : safePageSize;
+        var includeBothSources = includeNexus && includeCurseforge;
+        var perSourceFetchCount = safePageSize;
+        var mergedPageSize = includeBothSources ? safePageSize * 2 : safePageSize;
 
         var nexusItems = new List<RemoteSearchItem>();
         var curseItems = new List<RemoteSearchItem>();
@@ -358,6 +364,7 @@ public sealed class RemoteCatalogService
         if (includeNexus)
         {
             var nexusRaw = await SearchNexusCollectionsAsync(keyword, settings);
+            nexusHasMore = nexusRaw.Count > safePage * perSourceFetchCount;
             nexusItems = nexusRaw
                 .Skip((safePage - 1) * perSourceFetchCount)
                 .Take(perSourceFetchCount)
@@ -369,10 +376,10 @@ public sealed class RemoteCatalogService
             }
             nexusHasMore = nexusItems.Count >= perSourceFetchCount;
         }
-
         if (includeCurseforge)
         {
             var curseRaw = await SearchCurseforgeModpacksAsync(keyword);
+            curseHasMore = curseRaw.Count > safePage * perSourceFetchCount;
             curseItems = curseRaw
                 .Skip((safePage - 1) * perSourceFetchCount)
                 .Take(perSourceFetchCount)
@@ -382,11 +389,10 @@ public sealed class RemoteCatalogService
                 item.Source = CatalogSource.Curseforge;
                 item.SourceTagHint = "CurseforgePack";
             }
-            curseHasMore = curseItems.Count >= perSourceFetchCount;
         }
 
         var merged = MergeBySourceAlternating(nexusItems, curseItems)
-            .Take(safePageSize)
+            .Take(mergedPageSize)
             .ToList();
 
         var formatted = merged.Select(item =>
@@ -1607,6 +1613,145 @@ public sealed class RemoteCatalogService
             Dependencies = dependencies.Count > 0 ? dependencies.ToList() : ["未声明显式依赖"],
             DownloadOptions = downloadOptions
         };
+    }
+
+    public async Task<string> ResolveCurseforgeFileDownloadUrlAsync(
+        long modId,
+        long fileId,
+        string fallbackUrl = "",
+        CancellationToken cancellationToken = default)
+    {
+        if (modId <= 0 || fileId <= 0)
+        {
+            return fallbackUrl ?? string.Empty;
+        }
+
+        var client = GetHttpClient();
+        var candidateEndpoints = new[]
+        {
+            $"https://api.curse.tools/v1/cf/mods/{modId}/files/{fileId}/download-url",
+            $"https://api.curse.tools/v1/cf/mods/{modId}/files/{fileId}",
+            $"https://api.curse.tools/v1/cf/mods/{modId}/files?index=0&pageSize=60"
+        };
+
+        foreach (var endpoint in candidateEndpoints)
+        {
+            try
+            {
+                using var response = await client.GetAsync(endpoint, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    continue;
+                }
+
+                var resolved = await TryExtractCurseforgeDownloadUrlAsync(response.Content, fileId, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(resolved))
+                {
+                    return resolved;
+                }
+            }
+            catch
+            {
+                // Keep this resolver best-effort and continue fallback chain.
+            }
+        }
+
+        return fallbackUrl ?? string.Empty;
+    }
+
+    private static async Task<string> TryExtractCurseforgeDownloadUrlAsync(
+        HttpContent content,
+        long fileId,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+
+        var direct = FindDownloadUrlInElement(doc.RootElement, fileId);
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
+
+        return string.Empty;
+    }
+
+    private static string FindDownloadUrlInElement(JsonElement element, long fileId)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                if (TryReadDownloadUrl(element, out var directUrl))
+                {
+                    return directUrl;
+                }
+
+                if (fileId > 0 &&
+                    element.TryGetProperty("id", out var idElement) &&
+                    idElement.ValueKind == JsonValueKind.Number &&
+                    idElement.TryGetInt64(out var currentId) &&
+                    currentId == fileId &&
+                    TryReadDownloadUrl(element, out var matchedUrl))
+                {
+                    return matchedUrl;
+                }
+
+                foreach (var property in element.EnumerateObject())
+                {
+                    var nested = FindDownloadUrlInElement(property.Value, fileId);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+
+                return string.Empty;
+            }
+            case JsonValueKind.Array:
+            {
+                foreach (var item in element.EnumerateArray())
+                {
+                    var nested = FindDownloadUrlInElement(item, fileId);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+
+                return string.Empty;
+            }
+            default:
+                return string.Empty;
+        }
+    }
+
+    private static bool TryReadDownloadUrl(JsonElement element, out string downloadUrl)
+    {
+        var candidateKeys = new[] { "downloadUrl", "download_url", "fileUrl", "file_url", "url" };
+        foreach (var key in candidateKeys)
+        {
+            if (!element.TryGetProperty(key, out var value) || value.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var candidate = value.GetString();
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                continue;
+            }
+
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            {
+                downloadUrl = uri.ToString();
+                return true;
+            }
+        }
+
+        downloadUrl = string.Empty;
+        return false;
     }
 
     private async Task<CatalogResourceDetails> GetGithubSmapiDetailsAsync(CatalogResourceIdentity identity)

@@ -59,24 +59,54 @@
 
         <Border Classes="hintCard">
           <StackPanel Spacing="8">
-            <TextBlock Text="下载选项" Classes="hintTitle" />
+            <TextBlock Text="{Binding DownloadSectionTitle}" Classes="hintTitle" />
             <ComboBox ItemsSource="{Binding DownloadOptions}" SelectedItem="{Binding SelectedDownloadOption}" IsEnabled="{Binding HasDownloadOptions}" />
-            <Button Content="加入下载队列"
-                    Command="{Binding QueueDownloadCommand}"
-                    IsEnabled="{Binding CanQueueDownload}"
+                <WrapPanel Orientation="Horizontal" ItemHeight="34" ItemWidth="126">
+                  <Button Content="安装到实例"
+                    Command="{Binding InstallSelectedDownloadOptionCommand}"
+                    IsEnabled="{Binding CanInstallSelectedDownloadOption}"
                     HorizontalAlignment="Left" />
+                  <Button Content="另存为"
+                    Command="{Binding SaveSelectedDownloadOptionAsCommand}"
+                    IsEnabled="{Binding CanSaveSelectedDownloadOptionAs}"
+                    HorizontalAlignment="Left" />
+              <Button Content="打开所选链接"
+                      Command="{Binding OpenSelectedDownloadOptionInBrowserCommand}"
+                      IsEnabled="{Binding CanOpenSelectedDownloadOptionInBrowser}"
+                      HorizontalAlignment="Left" />
+            </WrapPanel>
           </StackPanel>
         </Border>
 
         <Border Classes="hintCard">
           <StackPanel Spacing="8">
-            <TextBlock Text="可选版本" Classes="hintTitle" />
-            <TextBlock Text="暂无版本信息" Opacity="0.65" IsVisible="{Binding HasNoVersionOptions}" />
-            <ScrollViewer Height="120" IsVisible="{Binding HasVersionOptions}">
-              <ItemsControl ItemsSource="{Binding VersionOptions}">
+            <TextBlock Text="{Binding VersionSectionTitle}" Classes="hintTitle" />
+            <TextBlock Text="{Binding VersionGroupHintText}" Opacity="0.7" IsVisible="{Binding HasVersionGroups}" />
+            <TextBlock Text="暂无版本信息" Opacity="0.65" IsVisible="{Binding HasNoVersionGroups}" />
+            <ScrollViewer Height="220" IsVisible="{Binding HasVersionGroups}">
+              <ItemsControl ItemsSource="{Binding VersionGroups}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    <Border Classes="hintCard" Margin="0,0,0,8">
+                      <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                          <TextBlock Grid.Column="0" Text="{Binding GroupTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                          <Border Grid.Column="1" Background="#223B82F6" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding SourceTag}" Foreground="#FF1D4ED8" FontSize="11" FontWeight="SemiBold" />
+                          </Border>
+                          <Border Grid.Column="2" Background="#1A16A34A" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding CountText, StringFormat=共 {0} 条}" Foreground="#FF166534" FontSize="11" FontWeight="SemiBold" />
+                          </Border>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Items}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                              <TextBlock Text="{Binding StringFormat=• {0}}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -86,37 +116,94 @@
 
         <Border Classes="hintCard">
           <StackPanel Spacing="8">
-            <TextBlock Text="依赖信息" Classes="hintTitle" />
+            <TextBlock Text="{Binding DependencySectionTitle}" Classes="hintTitle" />
             <TextBlock Text="暂无依赖信息" Opacity="0.65" IsVisible="{Binding HasNoDependencyItems}" />
             <StackPanel Spacing="8" IsVisible="{Binding HasDependencyItems}">
               <StackPanel Spacing="4" IsVisible="{Binding HasRequiredDependencyItems}">
-                <TextBlock Text="前置依赖（必需）" FontWeight="SemiBold" />
-                <ItemsControl ItemsSource="{Binding RequiredDependencyItems}">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,2">
+                  <TextBlock Grid.Column="0" Text="{Binding RequiredDependencyHeaderText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <Border Grid.Column="1" Background="#1A16A34A" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding RequiredDependencyCountText, StringFormat=数量 {0}}" Foreground="#FF166534" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                  <Border Grid.Column="2" Background="#1F22C55E" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="必需" Foreground="#FF15803D" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                    <Button Grid.Column="3"
+                          Content="{Binding RequiredDependencyToggleText}"
+                          Command="{Binding ToggleRequiredDependenciesExpandedCommand}"
+                          MinWidth="58"
+                          Height="28"
+                          Margin="10,0,0,0" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding RequiredDependencyItems}" IsVisible="{Binding ShowRequiredDependencyList}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                        <TextBlock Grid.Column="0" Text="{Binding}" TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="来源页"
+                                Command="{Binding DataContext.OpenDependencySourceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}"
+                                MinWidth="62"
+                                Height="26"
+                                Margin="10,0,0,0" />
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </StackPanel>
 
               <StackPanel Spacing="4" IsVisible="{Binding HasHardConflictDependencyItems}">
-                <TextBlock Text="硬冲突" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2,0,2">
+                  <TextBlock Grid.Column="0" Text="硬冲突" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <Border Grid.Column="1" Background="#1AF97316" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding HardConflictDependencyCountText, StringFormat=数量 {0}}" Foreground="#FFC2410C" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                  <Border Grid.Column="2" Background="#1FDC2626" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="冲突" Foreground="#FFB91C1C" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                </Grid>
                 <ItemsControl ItemsSource="{Binding HardConflictDependencyItems}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                        <TextBlock Grid.Column="0" Text="{Binding}" TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="来源页"
+                                Command="{Binding DataContext.OpenDependencySourceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}"
+                                MinWidth="62"
+                                Height="26"
+                                Margin="10,0,0,0" />
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </StackPanel>
 
               <StackPanel Spacing="4" IsVisible="{Binding HasFunctionalOverlapDependencyItems}">
-                <TextBlock Text="功能重叠" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2,0,2">
+                  <TextBlock Grid.Column="0" Text="功能重叠" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <Border Grid.Column="1" Background="#1AF59E0B" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding FunctionalOverlapDependencyCountText, StringFormat=数量 {0}}" Foreground="#FFB45309" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                  <Border Grid.Column="2" Background="#1FD97706" CornerRadius="10" Padding="8,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="重叠" Foreground="#FF9A3412" FontSize="11" FontWeight="SemiBold" />
+                  </Border>
+                </Grid>
                 <ItemsControl ItemsSource="{Binding FunctionalOverlapDependencyItems}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,4" />
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                        <TextBlock Grid.Column="0" Text="{Binding}" TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="来源页"
+                                Command="{Binding DataContext.OpenDependencySourceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}"
+                                MinWidth="62"
+                                Height="26"
+                                Margin="10,0,0,0" />
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

@@ -16,6 +16,7 @@ public sealed class DownloadTaskStateStore
             CanRetry = task.CanRetry,
             CanCancel = task.CanCancel,
             TaskKind = task.TaskKind,
+            TaskAction = task.TaskAction,
             SourceUrl = task.SourceUrl,
             OutputFilePath = task.OutputFilePath,
             InstalledPath = task.InstalledPath,
@@ -23,6 +24,8 @@ public sealed class DownloadTaskStateStore
             BackupPath = task.BackupPath,
             FailedDetails = task.FailedDetails,
             RetryReportPath = task.RetryReportPath,
+            TargetGamePath = task.TargetGamePath,
+            TargetInstanceName = task.TargetInstanceName,
             DependencyUrls = task.DependencyUrls.ToList(),
             FailedDownloadUrls = task.FailedDownloadUrls.ToList(),
             ConflictPreviewItems = task.ConflictPreviewItems.ToList()
@@ -30,7 +33,7 @@ public sealed class DownloadTaskStateStore
 
         var envelope = new DownloadTaskStateEnvelope
         {
-            Version = 1,
+            Version = 2,
             Tasks = records
         };
 
@@ -145,6 +148,8 @@ public sealed class DownloadTaskStateRecord
 
     public DownloadTaskKind TaskKind { get; set; } = DownloadTaskKind.Generic;
 
+    public DownloadTaskAction TaskAction { get; set; } = DownloadTaskAction.InstallMod;
+
     public string SourceUrl { get; set; } = string.Empty;
 
     public string OutputFilePath { get; set; } = string.Empty;
@@ -158,6 +163,10 @@ public sealed class DownloadTaskStateRecord
     public string FailedDetails { get; set; } = string.Empty;
 
     public string RetryReportPath { get; set; } = string.Empty;
+
+    public string TargetGamePath { get; set; } = string.Empty;
+
+    public string TargetInstanceName { get; set; } = string.Empty;
 
     public List<string> DependencyUrls { get; set; } = [];
 

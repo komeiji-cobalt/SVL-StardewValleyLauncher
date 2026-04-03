@@ -81,6 +81,12 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _showTaskNavSoftHint;
 
     [ObservableProperty]
+    private bool _showDownloadFloatingTaskButton;
+
+    [ObservableProperty]
+    private int _floatingTaskBadgeCount;
+
+    [ObservableProperty]
     private string _launcherAppNameText = "SVL";
 
     [ObservableProperty]
@@ -150,6 +156,7 @@ public partial class MainWindowViewModel : ObservableObject
         var httpDownloadService = new HttpDownloadService();
         var nexusModDownloadResolverService = new NexusModDownloadResolverService();
         var downloadInstallService = new DownloadInstallService(_gameInstallPathLocator);
+        var smapiInstallService = new SmapiInstallService();
         var downloadTaskStateStore = new DownloadTaskStateStore();
         var retryDiffReportService = new RetryDiffReportService();
         var instanceRegistryStore = new InstanceRegistryStore();
@@ -168,6 +175,7 @@ public partial class MainWindowViewModel : ObservableObject
             httpDownloadService,
             nexusModDownloadResolverService,
             downloadInstallService,
+            smapiInstallService,
             remoteCatalogService,
             downloadTaskStateStore,
             retryDiffReportService);
@@ -198,6 +206,7 @@ public partial class MainWindowViewModel : ObservableObject
         DownloadPage.NavigateToModpackSearchRequested += HandleNavigateToModpackSearch;
         DownloadPage.OpenDetailsRequested += HandleOpenDetails;
         TaskStatusPage.RetryFailedItemsRequested += HandleRetryFailedItemsRequested;
+        TaskStatusPage.NavigateToDownloadRequested += HandleNavigateToDownload;
         ModSearchPage.OpenDetailsRequested += HandleOpenDetails;
         ModpackSearchPage.OpenDetailsRequested += HandleOpenDetails;
         SettingsPage.PropertyChanged += HandleSettingsPropertyChanged;
@@ -206,6 +215,7 @@ public partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowBackButton));
         OnPropertyChanged(nameof(ShowResourceDetailHeaderTitle));
         OnPropertyChanged(nameof(ShowBrandIdentity));
+        RefreshFloatingTaskButtonState();
     }
 
     private void ApplyLocalizedTexts()
@@ -242,6 +252,7 @@ public partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowResourceDetailHeaderTitle));
         OnPropertyChanged(nameof(ShowBrandIdentity));
         RefreshTaskNavNotification();
+        RefreshFloatingTaskButtonState();
     }
 
     private void HandleNavigateToInstances()
@@ -346,6 +357,11 @@ public partial class MainWindowViewModel : ObservableObject
         NavigateToPage("任务", TaskStatusPage);
     }
 
+    private void HandleNavigateToDownload()
+    {
+        NavigateToPage("下载", DownloadPage, clearBackStack: true);
+    }
+
     private void HandleNavigateToModSearch()
     {
         NavigateToPage("Mod搜索", ModSearchPage);
@@ -363,9 +379,14 @@ public partial class MainWindowViewModel : ObservableObject
         NavigateToPage("资源详情", ModDetailsPage, pushCurrentToBackStack: true);
     }
 
-    private void HandleQueueDownload(Models.ExternalDownloadRequest request)
+    private async void HandleQueueDownload(Models.ExternalDownloadRequest request)
     {
-        DownloadPage.AddTaskFromExternal(request);
+        var queued = await DownloadPage.AddTaskFromExternalAsync(request);
+        if (!queued)
+        {
+            return;
+        }
+
         TaskStatusPage.SetCurrentTask(request.ToTaskDisplayName(), "已加入队列");
         NavigateToPage("任务", TaskStatusPage);
     }
@@ -387,6 +408,12 @@ public partial class MainWindowViewModel : ObservableObject
     private void NavigateToTasks()
     {
         NavigateToPage("任务", TaskStatusPage, clearBackStack: true);
+    }
+
+    [RelayCommand]
+    private void OpenFloatingTaskManager()
+    {
+        NavigateToTasks();
     }
 
     [RelayCommand]
@@ -448,17 +475,31 @@ public partial class MainWindowViewModel : ObservableObject
             DownloadPage.ActiveTasks.Count,
             DownloadPage.FinishedTasks.Count,
             DownloadPage.SelectedTaskHint);
+        RefreshFloatingTaskButtonState();
+    }
+
+    private void RefreshFloatingTaskButtonState()
+    {
+        var totalTasks = DownloadPage.ActiveTasks.Count + DownloadPage.FinishedTasks.Count;
+        FloatingTaskBadgeCount = totalTasks;
+
+        var enabled = SettingsPage.EnableDownloadFloatingTaskButton;
+        ShowDownloadFloatingTaskButton = enabled && totalTasks > 0 && !IsTasksPage;
     }
 
     private void HandleSettingsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (!string.Equals(e.PropertyName, nameof(SettingsPageViewModel.LauncherAppName), StringComparison.Ordinal))
+        if (string.Equals(e.PropertyName, nameof(SettingsPageViewModel.LauncherAppName), StringComparison.Ordinal))
         {
+            LauncherAppNameText = string.IsNullOrWhiteSpace(SettingsPage.LauncherAppName)
+                ? "SVL"
+                : SettingsPage.LauncherAppName;
             return;
         }
 
-        LauncherAppNameText = string.IsNullOrWhiteSpace(SettingsPage.LauncherAppName)
-            ? "SVL"
-            : SettingsPage.LauncherAppName;
+        if (string.Equals(e.PropertyName, nameof(SettingsPageViewModel.EnableDownloadFloatingTaskButton), StringComparison.Ordinal))
+        {
+            RefreshFloatingTaskButtonState();
+        }
     }
 }

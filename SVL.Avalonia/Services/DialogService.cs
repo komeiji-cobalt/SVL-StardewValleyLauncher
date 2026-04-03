@@ -589,6 +589,20 @@ public sealed class DialogService
         return await PickFilePathAsync(owner, title, fileTypes);
     }
 
+    public async Task<string?> SaveFilePathAsync(
+        string title,
+        string suggestedFileName,
+        IReadOnlyList<FilePickerFileType>? fileTypes = null)
+    {
+        var owner = GetMainWindow();
+        if (owner == null)
+        {
+            return null;
+        }
+
+        return await PickSaveFilePathAsync(owner, title, suggestedFileName, fileTypes);
+    }
+
     private static Window CreateHostedDialogWindow(string title, Control content)
     {
         return new Window
@@ -632,6 +646,35 @@ public sealed class DialogService
         });
 
         var file = items.FirstOrDefault();
+        if (file?.Path == null)
+        {
+            return null;
+        }
+
+        var uri = file.Path;
+        return uri.IsAbsoluteUri ? Uri.UnescapeDataString(uri.LocalPath) : uri.ToString();
+    }
+
+    private static async Task<string?> PickSaveFilePathAsync(
+        Window owner,
+        string title,
+        string suggestedFileName,
+        IReadOnlyList<FilePickerFileType>? fileTypes = null)
+    {
+        var normalizedName = string.IsNullOrWhiteSpace(suggestedFileName)
+            ? "download.zip"
+            : suggestedFileName.Trim();
+        var defaultExtension = Path.GetExtension(normalizedName);
+
+        var file = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedFileName = normalizedName,
+            DefaultExtension = string.IsNullOrWhiteSpace(defaultExtension) ? null : defaultExtension,
+            ShowOverwritePrompt = true,
+            FileTypeChoices = fileTypes
+        });
+
         if (file?.Path == null)
         {
             return null;

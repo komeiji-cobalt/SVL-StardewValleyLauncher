@@ -3,7 +3,8 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:SVL.Avalonia.ViewModels"
-  xmlns:views="using:SVL.Avalonia.Views"
+    xmlns:views="using:SVL.Avalonia.Views"
+      xmlns:controls="using:SVL.Avalonia.Controls"
         mc:Ignorable="d" d:DesignWidth="1050" d:DesignHeight="680"
         x:Class="SVL.Avalonia.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -120,6 +121,14 @@
       <Border Classes="panel">
         <ContentControl Content="{Binding CurrentPageViewModel}" />
       </Border>
+
+      <controls:DownloadFloatingButton
+        HorizontalAlignment="Right"
+        VerticalAlignment="Bottom"
+        Margin="0,0,24,24"
+        PendingTaskCount="{Binding FloatingTaskBadgeCount}"
+        OpenQueueCommand="{Binding OpenFloatingTaskManagerCommand}"
+        IsVisible="{Binding ShowDownloadFloatingTaskButton}" />
     </Grid>
   </Grid>
 </Window>

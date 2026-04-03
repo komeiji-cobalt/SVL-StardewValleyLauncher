@@ -354,12 +354,13 @@
                                   <Button Content="查看详情"
                                           Command="{Binding DataContext.OpenCatalogItemDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="{Binding}"
-                                    MinWidth="88"
-                                    Height="30" />
+                                    Width="96"
+                                    Height="30"
+                                    FontSize="12" />
                                   <Button Content="{Binding LocalizationToggleButtonText}"
                                           Command="{Binding DataContext.ToggleLocalizedDisplayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="{Binding}"
-                                    MinWidth="64"
+                                    Width="96"
                                     Height="30" />
                                 </StackPanel>
                               </Grid>
